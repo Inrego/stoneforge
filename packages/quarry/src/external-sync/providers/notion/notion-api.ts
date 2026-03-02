@@ -363,10 +363,13 @@ export class NotionApiClient {
     blocks: readonly NotionBlockInput[]
   ): Promise<NotionBlock[]> {
     // Step 1: Get existing blocks and delete them concurrently in batches
+    // Filter out archived blocks — Notion rejects DELETE on archived blocks with:
+    // "Can't edit block that is archived. You must unarchive the block before editing."
     const existingBlocks = await this.getBlocks(pageId);
+    const deletableBlocks = existingBlocks.filter(block => !block.archived);
 
-    for (let i = 0; i < existingBlocks.length; i += CONCURRENT_BLOCK_DELETES) {
-      const batch = existingBlocks.slice(i, i + CONCURRENT_BLOCK_DELETES);
+    for (let i = 0; i < deletableBlocks.length; i += CONCURRENT_BLOCK_DELETES) {
+      const batch = deletableBlocks.slice(i, i + CONCURRENT_BLOCK_DELETES);
       await Promise.all(
         batch.map(block => this.request<void>('DELETE', `/blocks/${block.id}`))
       );

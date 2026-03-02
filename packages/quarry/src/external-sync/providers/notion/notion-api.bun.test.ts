@@ -604,6 +604,70 @@ describe('NotionApiClient', () => {
       expect(batch2Body.children).toHaveLength(50);
     });
 
+    test('skips archived blocks during deletion', async () => {
+      const existingBlocks = [
+        createMockBlock({ id: 'active-1', archived: false }),
+        createMockBlock({ id: 'archived-1', archived: true }),
+        createMockBlock({ id: 'active-2', archived: false }),
+        createMockBlock({ id: 'archived-2', archived: true }),
+      ];
+      const newBlocks = [createMockBlock({ id: 'new-1' })];
+
+      let callCount = 0;
+      mockFetch.mockImplementation((_url: string, _init: RequestInit) => {
+        callCount++;
+        // Call 1: GET blocks (returns mix of archived and non-archived)
+        if (callCount === 1) {
+          return Promise.resolve(
+            createMockResponse({
+              object: 'list',
+              results: existingBlocks,
+              has_more: false,
+              next_cursor: null,
+              type: 'block',
+            })
+          );
+        }
+        // Calls 2-3: DELETE only the non-archived blocks (204 No Content)
+        if (callCount === 2 || callCount === 3) {
+          return Promise.resolve(createMockResponse(undefined, 204));
+        }
+        // Call 4: PATCH append new blocks
+        return Promise.resolve(
+          createMockResponse({
+            object: 'list',
+            results: newBlocks,
+            has_more: false,
+            next_cursor: null,
+            type: 'block',
+          })
+        );
+      });
+
+      const result = await client.updatePageContent('page-id', [
+        { type: 'paragraph', paragraph: { rich_text: [] } },
+      ]);
+
+      // 1 GET + 2 DELETEs (only non-archived) + 1 PATCH = 4 calls
+      expect(callCount).toBe(4);
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('new-1');
+
+      // Verify only non-archived blocks were deleted
+      const deleteUrl1 = (mockFetch.mock.calls[1] as [string, RequestInit])[0] as string;
+      expect(deleteUrl1).toContain('/blocks/active-1');
+
+      const deleteUrl2 = (mockFetch.mock.calls[2] as [string, RequestInit])[0] as string;
+      expect(deleteUrl2).toContain('/blocks/active-2');
+
+      // Verify no DELETE calls were made for archived blocks
+      const allUrls = mockFetch.mock.calls.map(
+        (call: unknown[]) => (call as [string, RequestInit])[0]
+      );
+      expect(allUrls.some((url: string) => url.includes('/blocks/archived-1'))).toBe(false);
+      expect(allUrls.some((url: string) => url.includes('/blocks/archived-2'))).toBe(false);
+    });
+
     test('batches 250 blocks into three appends of 100, 100, and 50', async () => {
       const inputBlocks = Array.from({ length: 250 }, (_, i) => ({
         type: 'paragraph' as const,
