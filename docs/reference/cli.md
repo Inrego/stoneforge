@@ -229,6 +229,19 @@ Creates a `.stoneforge/` directory containing:
 - `playbooks/` — Directory for playbook definitions
 - `AGENTS.md` — Agent context file at workspace root (if no `AGENTS.md` or `CLAUDE.md` exists)
 
+### Default Agents
+
+`sf init` automatically creates the following default agents:
+
+| Name | Role | Type |
+|------|------|------|
+| `director` | Director | Agent |
+| `e-worker-1` | Ephemeral Worker | Agent |
+| `e-worker-2` | Ephemeral Worker | Agent |
+| `m-steward-1` | Merge Steward | Agent |
+
+Re-running `sf init` is safe — existing agents are not duplicated (idempotent).
+
 If the `.stoneforge/` directory already exists (e.g., after cloning a repo) but no database is present, `sf init` will create the database and auto-import from any existing JSONL sync files. Claude skills are also installed automatically during init.
 
 ```bash

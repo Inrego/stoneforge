@@ -16,6 +16,7 @@ import { createQuarryAPI } from '../../api/quarry-api.js';
 import {
   ElementType,
   createTimestamp,
+  createEntity,
   type Entity,
   type EntityId,
   type ElementId,
@@ -23,6 +24,7 @@ import {
 import { EntityTypeValue } from '@stoneforge/core';
 import { createSyncService } from '../../sync/service.js';
 import { installSkillsToWorkspace } from './install.js';
+import type { QuarryAPI } from '../../api/quarry-api.js';
 
 // ============================================================================
 // Constants
@@ -199,6 +201,89 @@ Override built-in agent prompts by placing files in \`.stoneforge/prompts/\`.
 `;
 
 // ============================================================================
+// Default Agents
+// ============================================================================
+
+/**
+ * Agent metadata key used by the orchestrator (matches smithy's AGENT_META_KEY)
+ */
+const AGENT_META_KEY = 'agent';
+
+/**
+ * Default agents to create during workspace initialization.
+ * These match the standard orchestration roles.
+ */
+export const DEFAULT_AGENTS = [
+  {
+    name: 'director',
+    metadata: {
+      agentRole: 'director',
+      sessionStatus: 'idle',
+      maxConcurrentTasks: 1,
+    },
+  },
+  {
+    name: 'e-worker-1',
+    metadata: {
+      agentRole: 'worker',
+      workerMode: 'ephemeral',
+      sessionStatus: 'idle',
+      maxConcurrentTasks: 1,
+    },
+  },
+  {
+    name: 'e-worker-2',
+    metadata: {
+      agentRole: 'worker',
+      workerMode: 'ephemeral',
+      sessionStatus: 'idle',
+      maxConcurrentTasks: 1,
+    },
+  },
+  {
+    name: 'm-steward-1',
+    metadata: {
+      agentRole: 'steward',
+      stewardFocus: 'merge',
+      triggers: [],
+      sessionStatus: 'idle',
+      maxConcurrentTasks: 1,
+    },
+  },
+] as const;
+
+/**
+ * Creates default agents if they don't already exist.
+ * Returns the number of agents created (skips existing ones for idempotency).
+ */
+async function createDefaultAgents(api: QuarryAPI): Promise<{ created: number; skipped: number }> {
+  let created = 0;
+  let skipped = 0;
+
+  for (const agentDef of DEFAULT_AGENTS) {
+    // Check if agent already exists (idempotency)
+    const existing = await api.lookupEntityByName(agentDef.name);
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    // Create the entity with agent metadata
+    const entity = await createEntity({
+      name: agentDef.name,
+      entityType: EntityTypeValue.AGENT,
+      createdBy: OPERATOR_ENTITY_ID,
+      metadata: { [AGENT_META_KEY]: agentDef.metadata },
+    });
+
+    await api.create(entity as unknown as Record<string, unknown> & { createdBy: EntityId });
+    created++;
+  }
+
+  return { created, skipped };
+}
+
+// ============================================================================
 // Command Options
 // ============================================================================
 
@@ -291,6 +376,9 @@ async function initHandler(
 
     await api.create(operatorEntity as unknown as Record<string, unknown> & { createdBy: EntityId });
 
+    // Create default agents (director, workers, steward)
+    const agentResult = await createDefaultAgents(api);
+
     // Import from JSONL files if they exist (common after cloning a repo)
     let importMessage = '';
     if (partialInit) {
@@ -335,9 +423,17 @@ async function initHandler(
       ? '\nCreated AGENTS.md at workspace root'
       : '';
 
+    let agentsMessage = '';
+    if (agentResult.created > 0) {
+      agentsMessage = `\nCreated ${agentResult.created} default agent(s): ${DEFAULT_AGENTS.map(a => a.name).join(', ')}`;
+    }
+    if (agentResult.skipped > 0) {
+      agentsMessage += `\nSkipped ${agentResult.skipped} existing agent(s)`;
+    }
+
     return success(
-      { path: stoneforgeDir, operatorId: OPERATOR_ENTITY_ID, agentsMdCreated, skillsInstalled },
-      `${baseMessage}\nCreated default operator entity: ${OPERATOR_ENTITY_ID}${agentsMdMessage}${importMessage}${skillsMessage}`
+      { path: stoneforgeDir, operatorId: OPERATOR_ENTITY_ID, agentsMdCreated, skillsInstalled, agentsCreated: agentResult.created },
+      `${baseMessage}\nCreated default operator entity: ${OPERATOR_ENTITY_ID}${agentsMessage}${agentsMdMessage}${importMessage}${skillsMessage}`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -362,7 +458,15 @@ Creates a .stoneforge/ directory containing:
   - playbooks/      Directory for playbook definitions
 
 The database is created with a default "operator" entity (el-0000) that serves
-as the default actor for CLI operations and web applications.`,
+as the default actor for CLI operations and web applications.
+
+Default agents are automatically created:
+  - director        Director agent for task management
+  - e-worker-1      Ephemeral worker agent
+  - e-worker-2      Ephemeral worker agent
+  - m-steward-1     Merge steward agent
+
+Re-running init is safe — existing agents are not duplicated.`,
   options: [
     {
       name: 'name',

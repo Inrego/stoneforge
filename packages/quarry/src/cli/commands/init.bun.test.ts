@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { existsSync, rmSync, readFileSync, mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { initCommand, DEFAULT_AGENTS_MD } from './init.js';
+import { initCommand, DEFAULT_AGENTS_MD, DEFAULT_AGENTS } from './init.js';
 import { ExitCode, DEFAULT_GLOBAL_OPTIONS } from '../types.js';
 
 describe('initCommand', () => {
@@ -345,6 +345,68 @@ describe('initCommand', () => {
 
       const data = result.data as { agentsMdCreated: boolean };
       expect(data.agentsMdCreated).toBe(false);
+    });
+  });
+
+  describe('default agents creation', () => {
+    it('should create all 4 default agents', async () => {
+      const result = await initCommand.handler([], { ...DEFAULT_GLOBAL_OPTIONS });
+      expect(result.exitCode).toBe(ExitCode.SUCCESS);
+
+      const data = result.data as { agentsCreated: number };
+      expect(data.agentsCreated).toBe(4);
+    });
+
+    it('should mention default agents in success message', async () => {
+      const result = await initCommand.handler([], { ...DEFAULT_GLOBAL_OPTIONS });
+      expect(result.exitCode).toBe(ExitCode.SUCCESS);
+      expect(result.message).toContain('default agent');
+      expect(result.message).toContain('director');
+      expect(result.message).toContain('e-worker-1');
+      expect(result.message).toContain('e-worker-2');
+      expect(result.message).toContain('m-steward-1');
+    });
+
+    it('should be idempotent - not duplicate agents on partial re-init', async () => {
+      // First init
+      const sfDir = join(testDir, '.stoneforge');
+      const first = await initCommand.handler([], { ...DEFAULT_GLOBAL_OPTIONS });
+      expect(first.exitCode).toBe(ExitCode.SUCCESS);
+
+      // Simulate partial re-init: remove database but keep directory
+      const dbPath = join(sfDir, 'stoneforge.db');
+      rmSync(dbPath, { force: true });
+      // Also remove WAL/journal files
+      try { rmSync(dbPath + '-wal', { force: true }); } catch { /* ignore */ }
+      try { rmSync(dbPath + '-shm', { force: true }); } catch { /* ignore */ }
+      try { rmSync(dbPath + '-journal', { force: true }); } catch { /* ignore */ }
+
+      // Second init should succeed (partial init path)
+      const second = await initCommand.handler([], { ...DEFAULT_GLOBAL_OPTIONS });
+      expect(second.exitCode).toBe(ExitCode.SUCCESS);
+
+      // Should create agents again since DB was recreated
+      const data = second.data as { agentsCreated: number };
+      expect(data.agentsCreated).toBe(4);
+    });
+
+    it('should have correct agent definitions', () => {
+      expect(DEFAULT_AGENTS).toHaveLength(4);
+
+      const names = DEFAULT_AGENTS.map(a => a.name);
+      expect(names).toContain('director');
+      expect(names).toContain('e-worker-1');
+      expect(names).toContain('e-worker-2');
+      expect(names).toContain('m-steward-1');
+
+      const director = DEFAULT_AGENTS.find(a => a.name === 'director');
+      expect(director?.metadata.agentRole).toBe('director');
+
+      const worker1 = DEFAULT_AGENTS.find(a => a.name === 'e-worker-1');
+      expect(worker1?.metadata.agentRole).toBe('worker');
+
+      const steward = DEFAULT_AGENTS.find(a => a.name === 'm-steward-1');
+      expect(steward?.metadata.agentRole).toBe('steward');
     });
   });
 
