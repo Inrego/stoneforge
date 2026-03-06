@@ -962,24 +962,38 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
     try {
       await execFileAsync(execCommand, wrapArgs(strictArgs), execOptions);
-    } catch {
-      // Strict install failed — the lockfile may be out of sync with
-      // package.json (e.g. uncommitted lockfile changes on the base branch).
-      // Fall back to a plain install so the worktree is still usable.
+    } catch (firstError) {
+      // If corepack itself wasn't found, fall back to direct package manager invocation
+      const isCorepackNotFound =
+        useCorepack &&
+        (firstError as NodeJS.ErrnoException).code === 'ENOENT';
+      const fallbackCommand = isCorepackNotFound ? command : execCommand;
+      const fallbackWrap = isCorepackNotFound
+        ? (args: string[]) => args
+        : wrapArgs;
+
       try {
-        await execFileAsync(execCommand, wrapArgs(['install']), execOptions);
-      } catch (error) {
-        const execError = error as Error & { stdout?: string; stderr?: string };
-        const details = [
-          execError.message,
-          execError.stderr ? `stderr: ${execError.stderr}` : '',
-          execError.stdout ? `stdout: ${execError.stdout}` : '',
-        ].filter(Boolean).join('\n');
-        throw new WorktreeError(
-          `Failed to install dependencies in worktree: ${worktreePath}`,
-          'DEPENDENCY_INSTALL_FAILED',
-          details
-        );
+        // Retry strict install (with direct command if corepack was missing)
+        await execFileAsync(fallbackCommand, fallbackWrap(strictArgs), execOptions);
+      } catch {
+        // Strict install failed — the lockfile may be out of sync with
+        // package.json (e.g. uncommitted lockfile changes on the base branch).
+        // Fall back to a plain install so the worktree is still usable.
+        try {
+          await execFileAsync(fallbackCommand, fallbackWrap(['install']), execOptions);
+        } catch (error) {
+          const execError = error as Error & { stdout?: string; stderr?: string };
+          const details = [
+            execError.message,
+            execError.stderr ? `stderr: ${execError.stderr}` : '',
+            execError.stdout ? `stdout: ${execError.stdout}` : '',
+          ].filter(Boolean).join('\n');
+          throw new WorktreeError(
+            `Failed to install dependencies in worktree: ${worktreePath}`,
+            'DEPENDENCY_INSTALL_FAILED',
+            details
+          );
+        }
       }
     }
   }
