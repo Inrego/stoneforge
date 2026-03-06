@@ -1204,8 +1204,30 @@ export class DispatchDaemonImpl implements DispatchDaemon {
 
         // 4. Check if the task is stuck in a resume loop
         const taskAssignment = workerTasks[0];
-        const resumeCount = taskAssignment.orchestratorMeta?.resumeCount ?? 0;
+        let resumeCount = taskAssignment.orchestratorMeta?.resumeCount ?? 0;
         const maxResumes = this.config.maxResumeAttemptsBeforeRecovery;
+
+        // Reset resume budget if the task's last activity predates a manual wake.
+        // Rate-limited sessions burn through resumeCount without the worker being
+        // genuinely stuck — give it a fresh start after wake.
+        if (this.lastWakeAt && resumeCount >= maxResumes && maxResumes > 0) {
+          const lastSessionStart = this.getLastSessionStartTime(taskAssignment.orchestratorMeta);
+          if (lastSessionStart && lastSessionStart < this.lastWakeAt) {
+            logger.info(
+              `Resetting resumeCount for task ${taskAssignment.task.id} (was ${resumeCount}) — ` +
+              `last session predates manual wake`
+            );
+            resumeCount = 0;
+            // Persist the reset so it doesn't keep triggering
+            const freshTaskForReset = await this.api.get<Task>(taskAssignment.task.id);
+            await this.api.update<Task>(taskAssignment.task.id, {
+              metadata: updateOrchestratorTaskMeta(
+                freshTaskForReset?.metadata as Record<string, unknown> | undefined,
+                { resumeCount: 0 }
+              ),
+            });
+          }
+        }
 
         if (maxResumes > 0 && resumeCount >= maxResumes) {
           // Task has been resumed too many times without status change —
@@ -2413,6 +2435,18 @@ export class DispatchDaemonImpl implements DispatchDaemon {
 
     // All recent sessions were rapid retries without proper completion
     return true;
+  }
+
+  /**
+   * Extracts the start time of the most recent session from task metadata.
+   * Used to determine whether a task's last activity predates a manual wake.
+   */
+  private getLastSessionStartTime(
+    taskMeta: import('../types/task-meta.js').OrchestratorTaskMeta | undefined
+  ): number | undefined {
+    const history = taskMeta?.sessionHistory;
+    if (!history || history.length === 0) return undefined;
+    return new Date(history[history.length - 1].startedAt).getTime();
   }
 
   /**

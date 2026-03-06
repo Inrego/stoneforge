@@ -3581,6 +3581,252 @@ describe('recoverOrphanedAssignments - rate limit guard', () => {
   });
 });
 
+// ============================================================================
+// wake() resumeCount reset tests
+// ============================================================================
+
+describe('recoverOrphanedAssignments - wake resets resumeCount', () => {
+  let api: QuarryAPI;
+  let inboxService: InboxService;
+  let agentRegistry: AgentRegistry;
+  let taskAssignment: TaskAssignmentService;
+  let dispatchService: DispatchService;
+  let sessionManager: SessionManager;
+  let worktreeManager: WorktreeManager;
+  let stewardScheduler: StewardScheduler;
+  let settingsService: SettingsService;
+  let daemon: DispatchDaemon;
+  let testDbPath: string;
+  let systemEntity: EntityId;
+
+  beforeEach(async () => {
+    testDbPath = `/tmp/dispatch-daemon-wake-resume-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+    const storage = createStorage({ path: testDbPath, create: true });
+    initializeSchema(storage);
+
+    api = createQuarryAPI(storage);
+    inboxService = createInboxService(storage);
+    agentRegistry = createAgentRegistry(api);
+    taskAssignment = createTaskAssignmentService(api);
+    dispatchService = createDispatchService(api, taskAssignment, agentRegistry);
+    sessionManager = createMockSessionManager();
+    worktreeManager = createMockWorktreeManager();
+    stewardScheduler = createMockStewardScheduler();
+    settingsService = createMockSettingsService();
+
+    const { createEntity, EntityTypeValue } = await import('@stoneforge/core');
+    const entity = await createEntity({
+      name: 'test-system-wake-resume',
+      entityType: EntityTypeValue.SYSTEM,
+      createdBy: 'system:test' as EntityId,
+    });
+    const saved = await api.create(entity as unknown as Record<string, unknown> & { createdBy: EntityId });
+    systemEntity = saved.id as unknown as EntityId;
+
+    const config: DispatchDaemonConfig = {
+      pollIntervalMs: 100,
+      workerAvailabilityPollEnabled: false,
+      inboxPollEnabled: false,
+      stewardTriggerPollEnabled: false,
+      workflowTaskPollEnabled: false,
+      orphanRecoveryEnabled: true,
+      maxResumeAttemptsBeforeRecovery: 3,
+    };
+
+    daemon = new DispatchDaemonImpl(
+      api,
+      agentRegistry,
+      sessionManager,
+      dispatchService,
+      worktreeManager,
+      taskAssignment,
+      stewardScheduler,
+      inboxService,
+      config,
+      undefined, // poolService
+      settingsService
+    );
+  });
+
+  afterEach(async () => {
+    await daemon.stop();
+    if (fs.existsSync(testDbPath)) {
+      fs.unlinkSync(testDbPath);
+    }
+  });
+
+  async function createTestWorker(name: string): Promise<AgentEntity> {
+    return agentRegistry.registerWorker({
+      name,
+      workerMode: 'ephemeral',
+      createdBy: systemEntity,
+      maxConcurrentTasks: 1,
+    });
+  }
+
+  async function createTestRecoverySteward(name: string): Promise<AgentEntity> {
+    return agentRegistry.registerSteward({
+      name,
+      stewardFocus: 'recovery',
+      createdBy: systemEntity,
+      maxConcurrentTasks: 1,
+    });
+  }
+
+  async function createTaskWithResumeCountAndHistory(
+    title: string,
+    workerId: EntityId,
+    resumeCount: number,
+    lastSessionStartedAt: string
+  ): Promise<Task> {
+    const task = await createTask({
+      title,
+      createdBy: systemEntity,
+      status: TaskStatus.IN_PROGRESS,
+      assignee: workerId,
+    });
+    const saved = await api.create(task as unknown as Record<string, unknown> & { createdBy: EntityId }) as Task;
+
+    let metadata: Record<string, unknown> | undefined = undefined;
+    metadata = updateOrchestratorTaskMeta(metadata, {
+      assignedAgent: workerId,
+      branch: 'agent/test-worker/task-branch',
+      worktree: '/worktrees/test-worker/task',
+      sessionId: 'prev-session',
+      resumeCount,
+    });
+
+    // Add a session history entry with the given startedAt
+    const entry: TaskSessionHistoryEntry = {
+      sessionId: 'session-pre-wake',
+      agentId: workerId,
+      agentName: 'test-worker',
+      agentRole: 'worker',
+      startedAt: lastSessionStartedAt as import('@stoneforge/core').Timestamp,
+    };
+    metadata = appendTaskSessionHistory(metadata, entry);
+
+    await api.update(saved.id, { metadata });
+    return (await api.get<Task>(saved.id))!;
+  }
+
+  test('resets resumeCount when last session predates wake, worker resumes normally', async () => {
+    const worker = await createTestWorker('wake-resume-worker');
+    const workerId = worker.id as unknown as EntityId;
+
+    // Create a task with resumeCount at maxResumes (3) and a session that started BEFORE wake
+    const preWakeTime = Date.now() - 60_000; // 1 minute ago
+    await createTaskWithResumeCountAndHistory(
+      'Task stuck during rate limit',
+      workerId,
+      3, // at maxResumes threshold
+      new Date(preWakeTime).toISOString()
+    );
+
+    // Call wake — this sets lastWakeAt to now
+    daemon.wake();
+
+    const result = await daemon.recoverOrphanedAssignments();
+
+    // Worker should be resumed normally (not sent to recovery steward)
+    expect(result.processed).toBe(1);
+    expect(result.errors).toBe(0);
+
+    // The resumeSession call should be for the worker (not startSession for a recovery steward)
+    expect(sessionManager.resumeSession).toHaveBeenCalled();
+
+    // Verify resumeCount was persisted as 0 (reset) then incremented to 1 after successful recovery
+    const tasks = await taskAssignment.getAgentTasks(workerId, { taskStatus: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] });
+    const updatedTask = await api.get<Task>(tasks[0].task.id);
+    const meta = getOrchestratorTaskMeta(updatedTask!.metadata as Record<string, unknown>);
+    // After reset to 0, then increment by 1 on successful recovery = 1
+    expect(meta?.resumeCount).toBe(1);
+  });
+
+  test('does NOT reset resumeCount when last session is AFTER wake (genuinely stuck)', async () => {
+    const worker = await createTestWorker('genuinely-stuck-worker');
+    const workerId = worker.id as unknown as EntityId;
+    await createTestRecoverySteward('recovery-steward-genuine');
+
+    // Call wake first
+    const originalNow = Date.now;
+    const wakeTime = Date.now();
+    Date.now = () => wakeTime;
+    daemon.wake();
+
+    // Create a task with resumeCount at maxResumes and a session AFTER the wake
+    const postWakeTime = wakeTime + 30_000; // 30s after wake
+    Date.now = () => postWakeTime + 60_000; // advance time past the session
+    await createTaskWithResumeCountAndHistory(
+      'Task genuinely stuck after wake',
+      workerId,
+      3, // at maxResumes threshold
+      new Date(postWakeTime).toISOString()
+    );
+
+    const result = await daemon.recoverOrphanedAssignments();
+
+    Date.now = originalNow;
+
+    // Should route to recovery steward (not reset), since last session is AFTER wake
+    expect(result.processed).toBe(1);
+  });
+
+  test('does NOT reset resumeCount when no wake has been called', async () => {
+    const worker = await createTestWorker('no-wake-worker');
+    const workerId = worker.id as unknown as EntityId;
+    await createTestRecoverySteward('recovery-steward-no-wake');
+
+    // Create a task at maxResumes but do NOT call wake
+    await createTaskWithResumeCountAndHistory(
+      'Task stuck without wake',
+      workerId,
+      3,
+      new Date(Date.now() - 60_000).toISOString()
+    );
+
+    const result = await daemon.recoverOrphanedAssignments();
+
+    // Should route to recovery steward since no wake was called
+    expect(result.processed).toBe(1);
+    // Verify it went to recovery steward by checking the task's resumeCount was NOT reset
+    const tasks = await taskAssignment.getAgentTasks(workerId, { taskStatus: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS] });
+    if (tasks.length > 0) {
+      const meta = getOrchestratorTaskMeta(tasks[0].task.metadata as Record<string, unknown>);
+      // resumeCount should still be 3 (not reset)
+      expect(meta?.resumeCount).toBe(3);
+    }
+  });
+
+  test('resumeCount reset is persisted to database', async () => {
+    const worker = await createTestWorker('persist-reset-worker');
+    const workerId = worker.id as unknown as EntityId;
+
+    const preWakeTime = Date.now() - 60_000;
+    const task = await createTaskWithResumeCountAndHistory(
+      'Task with persisted reset',
+      workerId,
+      5, // well above maxResumes
+      new Date(preWakeTime).toISOString()
+    );
+
+    // Verify initial resumeCount
+    const beforeMeta = getOrchestratorTaskMeta(task.metadata as Record<string, unknown>);
+    expect(beforeMeta?.resumeCount).toBe(5);
+
+    // Call wake
+    daemon.wake();
+
+    await daemon.recoverOrphanedAssignments();
+
+    // Read directly from DB to confirm persistence
+    const dbTask = await api.get<Task>(task.id);
+    const afterMeta = getOrchestratorTaskMeta(dbTask!.metadata as Record<string, unknown>);
+    // Reset to 0 then incremented to 1 after successful recovery
+    expect(afterMeta?.resumeCount).toBe(1);
+  });
+});
+
 describe('runPollCycle - allLimited with empty fallback chain', () => {
   let api: QuarryAPI;
   let inboxService: InboxService;
@@ -4874,13 +5120,17 @@ describe('spawnRecoveryStewardForTask - rate limit session history guard', () =>
     await createTaskWithRateLimitPattern('Rate limited task pre-wake', workerId);
 
     // Call wake — this should cause hasRecentRateLimitPattern to ignore pre-wake history
+    // AND reset resumeCount since the last session predates the wake
     daemon.wake();
 
     const result = await daemon.recoverOrphanedAssignments();
 
-    // Recovery steward SHOULD be spawned because pattern predates wake
+    // Worker SHOULD be resumed normally (not recovery steward) because:
+    // 1. Rate limit pattern predates wake → ignored
+    // 2. resumeCount was reset to 0 since last session predates wake
     expect(result.processed).toBe(1);
-    expect(sessionManager.startSession).toHaveBeenCalled();
+    // Worker is resumed via resumeSession (not startSession for a recovery steward)
+    expect(sessionManager.resumeSession).toHaveBeenCalled();
   });
 
   test('hasRecentRateLimitPattern returns true for post-wake rapid exits', async () => {
