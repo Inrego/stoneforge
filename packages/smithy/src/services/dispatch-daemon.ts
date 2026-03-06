@@ -88,6 +88,21 @@ export const DISPATCH_DAEMON_MAX_POLL_INTERVAL_MS = 60000;
 export const RATE_LIMIT_MINIMUM_FLOOR_MS = 15 * 60 * 1000;
 
 /**
+ * Maximum cap for rate limit reset times (24 hours).
+ * The rate limit parser can produce reset times far in the future (e.g., rolling
+ * a past date to the next year). Capping to 24 hours prevents absurdly long
+ * pauses and avoids setTimeout overflow (32-bit signed int max ≈ 24.8 days).
+ */
+export const RATE_LIMIT_MAXIMUM_CAP_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Maximum safe value for setTimeout delay (32-bit signed integer max).
+ * Node.js emits a TimeoutOverflowWarning and fires the timeout immediately
+ * if the delay exceeds this value.
+ */
+export const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
  * Conservative fallback reset time for suspected silent rate limits (1 hour).
  * Applied when a recovered worker session exits rapidly (~10 seconds) without
  * producing any assistant events, which strongly suggests a rate limit (e.g.,
@@ -667,15 +682,23 @@ export class DispatchDaemonImpl implements DispatchDaemon {
     // The rate limit parser can produce reset times that are too short due to
     // timezone issues or rounding. Premature expiry causes orphan recovery to
     // proceed and burn through the resume budget.
-    const minimumResetsAt = new Date(Date.now() + RATE_LIMIT_MINIMUM_FLOOR_MS);
-    const effectiveResetsAt = resetsAt.getTime() < minimumResetsAt.getTime()
-      ? minimumResetsAt
-      : resetsAt;
+    const now = Date.now();
+    const minimumResetsAt = new Date(now + RATE_LIMIT_MINIMUM_FLOOR_MS);
+    const maximumResetsAt = new Date(now + RATE_LIMIT_MAXIMUM_CAP_MS);
 
-    if (effectiveResetsAt !== resetsAt) {
+    let effectiveResetsAt: Date;
+    if (resetsAt.getTime() < minimumResetsAt.getTime()) {
+      effectiveResetsAt = minimumResetsAt;
       logger.warn(
         `Rate limit reset time for '${executable}' was too short (${resetsAt.toISOString()}), clamped to minimum floor (${effectiveResetsAt.toISOString()})`
       );
+    } else if (resetsAt.getTime() > maximumResetsAt.getTime()) {
+      effectiveResetsAt = maximumResetsAt;
+      logger.warn(
+        `Rate limit reset time for '${executable}' was too far in the future (${resetsAt.toISOString()}), clamped to maximum cap (${effectiveResetsAt.toISOString()})`
+      );
+    } else {
+      effectiveResetsAt = resetsAt;
     }
 
     // When a fallback chain is configured, rate limits are plan-level: hitting
@@ -761,7 +784,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
     if (this.rateLimitSleepTimer) {
       clearTimeout(this.rateLimitSleepTimer);
     }
-    const sleepMs = Math.max(0, resetTime.getTime() - Date.now());
+    const sleepMs = Math.min(Math.max(0, resetTime.getTime() - Date.now()), MAX_TIMEOUT_MS);
     logger.info(
       `Manual sleep: pausing dispatch for ${Math.round(sleepMs / 1000)}s (until ${resetTime.toISOString()})`
     );
@@ -1840,7 +1863,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
         // Schedule a wake-up timer so we re-check when the soonest limit expires
         const soonestReset = this.rateLimitTracker.getSoonestResetTime();
         if (soonestReset && !this.rateLimitSleepTimer) {
-          const sleepMs = Math.max(0, soonestReset.getTime() - Date.now());
+          const sleepMs = Math.min(Math.max(0, soonestReset.getTime() - Date.now()), MAX_TIMEOUT_MS);
           logger.info(
             `All executables rate-limited. Pausing dispatch polls for ${Math.round(sleepMs / 1000)}s (until ${soonestReset.toISOString()})`
           );

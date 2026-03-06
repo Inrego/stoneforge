@@ -35,6 +35,7 @@ import {
   type DispatchDaemonConfig,
   type PollResult,
   RATE_LIMIT_MINIMUM_FLOOR_MS,
+  RATE_LIMIT_MAXIMUM_CAP_MS,
   RAPID_EXIT_THRESHOLD_MS,
   RAPID_EXIT_FALLBACK_RESET_MS,
   RATE_LIMIT_SESSION_PATTERN_COUNT,
@@ -3873,6 +3874,138 @@ describe('handleRateLimitDetected - minimum floor', () => {
       const recordedResetTime = new Date(limit.resetsAt).getTime();
       // Should be very close to the original (within tolerance of test execution time)
       expect(Math.abs(recordedResetTime - exactlyAtFloor.getTime())).toBeLessThan(2000);
+    }
+  });
+});
+
+// ============================================================================
+// handleRateLimitDetected - maximum cap
+// ============================================================================
+
+describe('handleRateLimitDetected - maximum cap', () => {
+  let api: QuarryAPI;
+  let inboxService: InboxService;
+  let agentRegistry: AgentRegistry;
+  let taskAssignment: TaskAssignmentService;
+  let dispatchService: DispatchService;
+  let sessionManager: SessionManager;
+  let worktreeManager: WorktreeManager;
+  let stewardScheduler: StewardScheduler;
+  let settingsService: SettingsService;
+  let daemon: DispatchDaemon;
+  let testDbPath: string;
+  let systemEntity: EntityId;
+
+  beforeEach(async () => {
+    testDbPath = `/tmp/dispatch-daemon-cap-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+    const storage = createStorage({ path: testDbPath, create: true });
+    initializeSchema(storage);
+
+    api = createQuarryAPI(storage);
+    inboxService = createInboxService(storage);
+    agentRegistry = createAgentRegistry(api);
+    taskAssignment = createTaskAssignmentService(api);
+    dispatchService = createDispatchService(api, taskAssignment, agentRegistry);
+    sessionManager = createMockSessionManager();
+    worktreeManager = createMockWorktreeManager();
+    stewardScheduler = createMockStewardScheduler();
+    settingsService = createMockSettingsService({
+      fallbackChain: ['claude2', 'claude'],
+    });
+
+    const { createEntity, EntityTypeValue } = await import('@stoneforge/core');
+    const entity = await createEntity({
+      name: 'test-system-cap',
+      entityType: EntityTypeValue.SYSTEM,
+      createdBy: 'system:test' as EntityId,
+    });
+    const saved = await api.create(entity as unknown as Record<string, unknown> & { createdBy: EntityId });
+    systemEntity = saved.id as unknown as EntityId;
+
+    daemon = new DispatchDaemonImpl(
+      api,
+      agentRegistry,
+      sessionManager,
+      dispatchService,
+      worktreeManager,
+      taskAssignment,
+      stewardScheduler,
+      inboxService,
+      { pollIntervalMs: 100 },
+      undefined,
+      settingsService
+    );
+  });
+
+  afterEach(async () => {
+    await daemon.stop();
+    if (fs.existsSync(testDbPath)) {
+      fs.unlinkSync(testDbPath);
+    }
+  });
+
+  test('clamps reset time to maximum cap when too far in the future (1 year out)', () => {
+    const now = Date.now();
+    // Reset time ~1 year from now — far beyond the 24-hour cap
+    const oneYearOut = new Date(now + 365 * 24 * 60 * 60 * 1000);
+    daemon.handleRateLimitDetected('claude', oneYearOut);
+
+    const status = daemon.getRateLimitStatus();
+    // Plan-level: marking 'claude' (in chain) marks all chain entries
+    expect(status.limits).toHaveLength(2);
+
+    // All entries should be clamped to the cap
+    for (const limit of status.limits) {
+      const recordedResetTime = new Date(limit.resetsAt).getTime();
+      // Should be at most RATE_LIMIT_MAXIMUM_CAP_MS from now (plus a small tolerance)
+      expect(recordedResetTime).toBeLessThanOrEqual(now + RATE_LIMIT_MAXIMUM_CAP_MS + 2000);
+      // Should still be above the minimum floor
+      expect(recordedResetTime).toBeGreaterThanOrEqual(now + RATE_LIMIT_MINIMUM_FLOOR_MS - 1000);
+    }
+  });
+
+  test('preserves reset time when below the maximum cap', () => {
+    const now = Date.now();
+    // Reset time 1 hour from now — well below the 24-hour cap
+    const oneHour = new Date(now + 60 * 60 * 1000);
+    daemon.handleRateLimitDetected('claude', oneHour);
+
+    const status = daemon.getRateLimitStatus();
+    expect(status.limits).toHaveLength(2);
+    for (const limit of status.limits) {
+      expect(limit.resetsAt).toBe(oneHour.toISOString());
+    }
+  });
+
+  test('clamps reset time exactly at the cap boundary', () => {
+    const now = Date.now();
+    // Exactly at the cap — should NOT be clamped
+    const exactlyAtCap = new Date(now + RATE_LIMIT_MAXIMUM_CAP_MS);
+    daemon.handleRateLimitDetected('claude', exactlyAtCap);
+
+    const status = daemon.getRateLimitStatus();
+    expect(status.limits).toHaveLength(2);
+
+    for (const limit of status.limits) {
+      const recordedResetTime = new Date(limit.resetsAt).getTime();
+      // Should be very close to the original (within tolerance of test execution time)
+      expect(Math.abs(recordedResetTime - exactlyAtCap.getTime())).toBeLessThan(2000);
+    }
+  });
+
+  test('clamps reset time just above the cap', () => {
+    const now = Date.now();
+    // 25 hours from now — just above the 24-hour cap
+    const justAboveCap = new Date(now + 25 * 60 * 60 * 1000);
+    daemon.handleRateLimitDetected('claude', justAboveCap);
+
+    const status = daemon.getRateLimitStatus();
+    expect(status.limits).toHaveLength(2);
+
+    for (const limit of status.limits) {
+      const recordedResetTime = new Date(limit.resetsAt).getTime();
+      // Should be clamped to approximately 24 hours from now
+      expect(recordedResetTime).toBeLessThanOrEqual(now + RATE_LIMIT_MAXIMUM_CAP_MS + 2000);
     }
   });
 });
