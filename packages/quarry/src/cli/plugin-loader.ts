@@ -104,6 +104,18 @@ async function loadPlugin(
   packageName: string,
   verbose: boolean
 ): Promise<PluginLoadResult> {
+  // Check for pre-registered plugin (handles pnpm strict isolation where
+  // quarry can't resolve sibling packages via dynamic import).
+  const preRegistered = getPreRegisteredPlugin(packageName);
+  if (preRegistered && isValidCLIPlugin(preRegistered)) {
+    if (verbose) {
+      console.error(
+        `[plugin] Loaded ${preRegistered.name}@${preRegistered.version} (pre-registered)`
+      );
+    }
+    return { packageName, success: true, plugin: preRegistered };
+  }
+
   try {
     // Try to import the package
     const module = await import(packageName);
@@ -161,6 +173,35 @@ async function loadPlugin(
       error: errorMessage,
     };
   }
+}
+
+/**
+ * Map of globalThis keys for pre-registered plugins, keyed by package name.
+ * This allows packages to pre-register their CLI plugins on globalThis before
+ * the plugin loader runs, working around pnpm strict isolation.
+ */
+const PRE_REGISTERED_PLUGIN_KEYS: Record<string, string> = {
+  '@stoneforge/smithy': '__stoneforge_smithy',
+};
+
+/**
+ * Checks for a pre-registered CLI plugin on globalThis.
+ *
+ * When the CLI entry point is in a package that can statically import the plugin
+ * (e.g., smithy's bin/sf.ts), it can pre-register the plugin on globalThis so
+ * quarry's plugin loader can find it without dynamic import.
+ */
+function getPreRegisteredPlugin(packageName: string): CLIPlugin | undefined {
+  const globalKey = PRE_REGISTERED_PLUGIN_KEYS[packageName];
+  if (!globalKey) return undefined;
+
+  const registered = (globalThis as Record<string, unknown>)[globalKey];
+  if (registered && typeof registered === 'object' && registered !== null) {
+    return (registered as Record<string, unknown>).cliPlugin as
+      | CLIPlugin
+      | undefined;
+  }
+  return undefined;
 }
 
 /**

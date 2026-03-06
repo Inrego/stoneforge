@@ -85,6 +85,70 @@ describe('discoverPlugins', () => {
   });
 });
 
+describe('pre-registered plugins', () => {
+  afterEach(() => {
+    // Clean up any test pre-registration
+    delete (globalThis as Record<string, unknown>).__stoneforge_smithy;
+  });
+
+  it('should use pre-registered cliPlugin from globalThis when available', async () => {
+    const mockPlugin = {
+      name: 'orchestrator',
+      version: '0.1.0',
+      commands: [],
+    };
+
+    // Pre-register the plugin like smithy's bin/sf.ts does
+    (globalThis as Record<string, unknown>).__stoneforge_smithy = {
+      cliPlugin: mockPlugin,
+    };
+
+    const result = await discoverPlugins(undefined, { verbose: true });
+
+    // Should have loaded the pre-registered plugin
+    const smithyResult = result.results.find(
+      r => r.packageName === '@stoneforge/smithy'
+    );
+    expect(smithyResult).toBeDefined();
+    expect(smithyResult!.success).toBe(true);
+    expect(smithyResult!.plugin).toBeDefined();
+    expect(smithyResult!.plugin!.name).toBe('orchestrator');
+
+    // Should have verbose log mentioning pre-registered
+    expect(consoleErrors.some(e => e.includes('pre-registered'))).toBe(true);
+  });
+
+  it('should fall back to dynamic import when no pre-registered plugin', async () => {
+    // Ensure no pre-registration exists
+    delete (globalThis as Record<string, unknown>).__stoneforge_smithy;
+
+    const result = await discoverPlugins();
+
+    // Should still attempt to discover plugins (via dynamic import)
+    const smithyResult = result.results.find(
+      r => r.packageName === '@stoneforge/smithy'
+    );
+    expect(smithyResult).toBeDefined();
+  });
+
+  it('should skip invalid pre-registered plugin and fall back to dynamic import', async () => {
+    // Pre-register an invalid plugin (missing required fields)
+    (globalThis as Record<string, unknown>).__stoneforge_smithy = {
+      cliPlugin: { invalid: true },
+    };
+
+    const result = await discoverPlugins();
+
+    // Should not use the invalid plugin - falls through to dynamic import
+    const smithyResult = result.results.find(
+      r => r.packageName === '@stoneforge/smithy'
+    );
+    expect(smithyResult).toBeDefined();
+    // The invalid pre-registered plugin should be skipped (isValidCLIPlugin fails)
+    // and the loader should fall through to dynamic import
+  });
+});
+
 describe('logPluginWarnings', () => {
   it('should log nothing for successful discovery with no warnings', () => {
     const result = {
