@@ -13,6 +13,7 @@
 
 import { config, getTimestamp, writeOutput, parseArgs } from "./config";
 import { resolve } from "path";
+import type { GSCInsights } from "./search-console";
 
 interface KeywordInput {
   keyword: string;
@@ -41,6 +42,17 @@ interface TopicCluster {
   serpFeatures: string[];
 }
 
+interface GSCOpportunity {
+  type: "high-impression-low-ctr" | "low-hanging-fruit" | "declining-page";
+  query?: string;
+  page?: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  position: number;
+  suggestedAction: string;
+}
+
 interface ContentCalendarOutput {
   timestamp: string;
   clusters: TopicCluster[];
@@ -60,6 +72,7 @@ interface ContentCalendarOutput {
     priority: string;
     estimatedSearchVolume: number;
   }>;
+  gscOpportunities?: GSCOpportunity[];
 }
 
 const HELP_TEXT = `
@@ -74,11 +87,13 @@ Usage:
 Options:
   -f, --file       Path to keyword research JSON output (required)
   --serp           Path to SERP analysis JSON output (optional, enhances scoring)
+  --gsc            Path to GSC output JSON (optional, adds search performance insights)
   --help, -h       Show this help message
 
 Examples:
   bun run tools/seo/content-calendar.ts -f tools/seo/output/keywords-2026-03-09T12-00-00.json
   bun run tools/seo/content-calendar.ts -f keywords.json --serp serp.json
+  bun run tools/seo/content-calendar.ts -f keywords.json --gsc gsc-data.json
 
 Output:
   tools/seo/output/calendar-{timestamp}.json
@@ -262,11 +277,15 @@ async function main() {
     process.exit(0);
   }
 
-  // Find --serp argument
+  // Find --serp and --gsc arguments
   let serpFile: string | undefined;
+  let gscFile: string | undefined;
   for (let i = 0; i < rawArgs.length; i++) {
     if (rawArgs[i] === "--serp" && rawArgs[i + 1]) {
       serpFile = rawArgs[i + 1];
+    }
+    if (rawArgs[i] === "--gsc" && rawArgs[i + 1]) {
+      gscFile = rawArgs[i + 1];
     }
   }
 
@@ -280,6 +299,7 @@ async function main() {
   console.log(`\nContent Calendar Generator`);
   console.log(`Keyword file: ${args.file}`);
   if (serpFile) console.log(`SERP file: ${serpFile}`);
+  if (gscFile) console.log(`GSC file: ${gscFile}`);
   console.log();
 
   // Load keyword data
@@ -315,6 +335,64 @@ async function main() {
   const mediumPriority = clusters.filter((c) => c.priority === "medium").length;
   const lowPriority = clusters.filter((c) => c.priority === "low").length;
 
+  // Process GSC data if provided
+  let gscOpportunities: GSCOpportunity[] | undefined;
+  if (gscFile) {
+    try {
+      const gscContent = await Bun.file(gscFile).json();
+      const insights = gscContent.insights?.details as GSCInsights | undefined;
+
+      if (insights) {
+        gscOpportunities = [];
+
+        for (const row of insights.highImpressionLowCtr ?? []) {
+          gscOpportunities.push({
+            type: "high-impression-low-ctr",
+            query: row.query,
+            page: row.page,
+            impressions: row.impressions,
+            clicks: row.clicks,
+            ctr: row.ctr,
+            position: row.position,
+            suggestedAction: "Optimize title and meta description to improve CTR",
+          });
+        }
+
+        for (const row of insights.lowHangingFruit ?? []) {
+          gscOpportunities.push({
+            type: "low-hanging-fruit",
+            query: row.query,
+            page: row.page,
+            impressions: row.impressions,
+            clicks: row.clicks,
+            ctr: row.ctr,
+            position: row.position,
+            suggestedAction: `Currently at position ${row.position} — create or improve content to push into top 5`,
+          });
+        }
+
+        for (const row of insights.decliningPages ?? []) {
+          gscOpportunities.push({
+            type: "declining-page",
+            query: row.query,
+            page: row.page,
+            impressions: row.impressions,
+            clicks: row.clicks,
+            ctr: row.ctr,
+            position: row.position,
+            suggestedAction: "Page has low CTR despite decent position — update content and meta tags",
+          });
+        }
+
+        console.log(`Loaded ${gscOpportunities.length} GSC opportunities`);
+      } else {
+        console.log(`GSC file loaded but no insights found — run search-console.ts first`);
+      }
+    } catch (err: any) {
+      console.warn(`Warning: Could not load GSC data: ${err.message}`);
+    }
+  }
+
   const output: ContentCalendarOutput = {
     timestamp: new Date().toISOString(),
     clusters,
@@ -326,6 +404,7 @@ async function main() {
       totalSearchVolume: clusters.reduce((sum, c) => sum + c.totalSearchVolume, 0),
     },
     contentPlan,
+    gscOpportunities,
   };
 
   const filename = `calendar-${getTimestamp()}.json`;
@@ -341,6 +420,36 @@ async function main() {
   for (const item of contentPlan.slice(0, 10)) {
     console.log(`  Week ${item.week}: [${item.priority}] ${item.suggestedTitle}`);
     console.log(`    Type: ${item.contentType} | Keywords: ${item.targetKeywords.slice(0, 3).join(", ")}`);
+  }
+
+  if (gscOpportunities && gscOpportunities.length > 0) {
+    console.log(`\nGoogle Search Console Opportunities:`);
+    const byType = {
+      "high-impression-low-ctr": gscOpportunities.filter((o) => o.type === "high-impression-low-ctr"),
+      "low-hanging-fruit": gscOpportunities.filter((o) => o.type === "low-hanging-fruit"),
+      "declining-page": gscOpportunities.filter((o) => o.type === "declining-page"),
+    };
+
+    if (byType["high-impression-low-ctr"].length > 0) {
+      console.log(`  High-impression, low-CTR queries (${byType["high-impression-low-ctr"].length}):`);
+      for (const o of byType["high-impression-low-ctr"].slice(0, 3)) {
+        console.log(`    "${o.query}" — ${o.impressions} imp, ${(o.ctr * 100).toFixed(2)}% CTR`);
+      }
+    }
+
+    if (byType["low-hanging-fruit"].length > 0) {
+      console.log(`  Low-hanging fruit — positions 5-20 (${byType["low-hanging-fruit"].length}):`);
+      for (const o of byType["low-hanging-fruit"].slice(0, 3)) {
+        console.log(`    "${o.query}" — pos ${o.position}, ${o.impressions} imp`);
+      }
+    }
+
+    if (byType["declining-page"].length > 0) {
+      console.log(`  Pages needing updates (${byType["declining-page"].length}):`);
+      for (const o of byType["declining-page"].slice(0, 3)) {
+        console.log(`    ${o.page} — pos ${o.position}, ${(o.ctr * 100).toFixed(2)}% CTR`);
+      }
+    }
   }
 }
 

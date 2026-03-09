@@ -39,6 +39,10 @@ export const config = {
     password: process.env.DATAFORSEO_PASSWORD ?? "",
     baseUrl: "https://api.dataforseo.com/v3",
   },
+  googleSearchConsole: {
+    serviceAccountKeyPath: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH ?? "",
+    siteUrl: process.env.GSC_SITE_URL ?? "",
+  },
   outputDir: resolve(__dirname, "output"),
 } as const;
 

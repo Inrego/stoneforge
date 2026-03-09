@@ -7,7 +7,11 @@
     "keyword-research": "bun run keyword-research.ts",
     "serp-analysis": "bun run serp-analysis.ts",
     "competitor-analysis": "bun run competitor-analysis.ts",
-    "content-calendar": "bun run content-calendar.ts"
+    "content-calendar": "bun run content-calendar.ts",
+    "search-console": "bun run search-console.ts"
+  },
+  "dependencies": {
+    "jose": "^6.0.0"
   },
   "devDependencies": {
     "@types/bun": "^1.2.0"
