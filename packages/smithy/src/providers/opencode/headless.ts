@@ -106,6 +106,11 @@ class OpenCodeHeadlessSession implements HeadlessSession {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    // Abort the running session to stop the underlying agent process.
+    // Without this, the agent continues executing even after close().
+    this.interrupt().catch(() => {
+      // Ignore errors — the session may already be finished
+    });
     this.messageQueue.close();
     serverManager.release();
   }

@@ -80,6 +80,12 @@ class CodexHeadlessSession implements HeadlessSession {
     if (this.closed) return;
     this.closed = true;
 
+    // Interrupt the running turn to stop the underlying agent process.
+    // Without this, the agent continues executing even after close().
+    this.interrupt().catch(() => {
+      // Ignore errors — the turn may already be finished
+    });
+
     // Flush any remaining buffered text
     for (const msg of this.eventMapper.flush()) {
       this.messageQueue.push(msg);

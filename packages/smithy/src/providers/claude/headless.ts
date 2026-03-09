@@ -129,6 +129,12 @@ class ClaudeHeadlessSession implements HeadlessSession {
     if (this.closed) return;
     this.closed = true;
     this.inputQueue.close();
+    // Interrupt the SDK query to abort the running API request and break the
+    // async iterator in createMessageIterator(). Without this, the underlying
+    // agent process continues executing even after the session is "closed".
+    this.sdkQuery.interrupt().catch(() => {
+      // Ignore errors — the query may already be finished
+    });
   }
 
   getSessionId(): ProviderSessionId | undefined {

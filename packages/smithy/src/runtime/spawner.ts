@@ -602,7 +602,34 @@ export class SpawnerServiceImpl implements SpawnerService {
 
     // Handle provider headless sessions
     if (session.headlessSession) {
-      session.headlessSession.close();
+      if (graceful) {
+        // Graceful: interrupt the SDK query, then close (which also interrupts).
+        // Wait up to 5s for the session to terminate cleanly.
+        try {
+          await session.headlessSession.interrupt();
+        } catch {
+          // Ignore — query may already be finished
+        }
+        session.headlessSession.close();
+
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            clearInterval(checkInterval);
+            resolve();
+          }, 5000);
+
+          const checkInterval = setInterval(() => {
+            if ((session.status as SessionStatus) === 'terminated') {
+              clearInterval(checkInterval);
+              clearTimeout(timeout);
+              resolve();
+            }
+          }, 100);
+        });
+      } else {
+        // Force: close immediately (close() calls interrupt() internally)
+        session.headlessSession.close();
+      }
     }
 
     // Handle headless process sessions (legacy)
