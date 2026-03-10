@@ -112,9 +112,14 @@ async function getBacklinkProfile(domain: string): Promise<BacklinkData> {
   let referringDomains = 0;
   let domainRank = 0;
 
-  if (summaryData.tasks?.[0]?.result?.[0]) {
-    const result = summaryData.tasks[0].result[0];
-    totalBacklinks = result.external_links_count ?? 0;
+  const summaryTask = summaryData.tasks?.[0];
+  if (summaryTask?.status_code !== 20000) {
+    console.warn(`  Warning: Backlinks summary for ${domain} returned status ${summaryTask?.status_code}: ${summaryTask?.status_message}`);
+  }
+
+  if (summaryTask?.result?.[0]) {
+    const result = summaryTask.result[0];
+    totalBacklinks = result.backlinks ?? 0;
     referringDomains = result.referring_domains ?? 0;
     domainRank = result.rank ?? 0;
   }
@@ -138,8 +143,12 @@ async function getBacklinkProfile(domain: string): Promise<BacklinkData> {
 
   if (referringResponse.ok) {
     const refData = await referringResponse.json() as any;
-    if (refData.tasks?.[0]?.result?.[0]?.items) {
-      for (const item of refData.tasks[0].result[0].items) {
+    const refTask = refData.tasks?.[0];
+    if (refTask?.status_code !== 20000) {
+      console.warn(`  Warning: Referring domains for ${domain} returned status ${refTask?.status_code}: ${refTask?.status_message}`);
+    }
+    if (refTask?.result?.[0]?.items) {
+      for (const item of refTask.result[0].items) {
         topReferringDomains.push({
           domain: item.domain ?? "",
           backlinks: item.backlinks ?? 0,
@@ -147,6 +156,8 @@ async function getBacklinkProfile(domain: string): Promise<BacklinkData> {
         });
       }
     }
+  } else {
+    console.warn(`  Warning: Referring domains request for ${domain} failed (${referringResponse.status})`);
   }
 
   return {
@@ -169,9 +180,10 @@ async function findBacklinkGap(
   console.log(`\nRunning domain intersection analysis...`);
 
   // Use the DataForSEO domain intersection endpoint
+  // API expects targets as an object with numeric string keys: {"1": "domain.com", "2": "domain2.com"}
   const targets: Record<string, string> = {};
   competitors.forEach((domain, i) => {
-    targets[`target${i + 1}`] = domain;
+    targets[String(i + 1)] = domain;
   });
 
   // Exclude our domain to find sites linking to competitors but not to us
@@ -182,10 +194,10 @@ async function findBacklinkGap(
       "Authorization": auth,
     },
     body: JSON.stringify([{
-      ...targets,
+      targets,
       exclude_targets: [ourDomain],
       limit: 100,
-      order_by: ["rank,desc"],
+      order_by: ["1.backlinks,desc"],
     }]),
   });
 
@@ -198,19 +210,27 @@ async function findBacklinkGap(
   }
 
   const data = await response.json() as any;
-  if (data.tasks?.[0]?.result?.[0]?.items) {
-    for (const item of data.tasks[0].result[0].items) {
+  const intersectionTask = data.tasks?.[0];
+  if (intersectionTask?.status_code !== 20000) {
+    console.warn(`  Warning: Domain intersection returned status ${intersectionTask?.status_code}: ${intersectionTask?.status_message}`);
+  }
+  if (intersectionTask?.result?.[0]?.items) {
+    for (const item of intersectionTask.result[0].items) {
       const linksTo: string[] = [];
-      for (const comp of competitors) {
-        if (item[comp]?.is_referring) {
+      // domain_intersection has numeric keys ("1", "2", ...) matching the targets object
+      const intersection = item.domain_intersection ?? {};
+      for (const [key, comp] of Object.entries(targets)) {
+        if (intersection[key]) {
           linksTo.push(comp);
         }
       }
+      // The referring domain is found in any of the intersection entries
+      const firstEntry = intersection["1"] ?? {};
       gapDomains.push({
-        domain: item.domain ?? "",
+        domain: firstEntry.target ?? item.domain ?? "",
         linksToCompetitors: linksTo,
-        totalBacklinks: item.backlinks ?? 0,
-        rank: item.rank ?? 0,
+        totalBacklinks: firstEntry.backlinks ?? item.backlinks ?? 0,
+        rank: firstEntry.rank ?? item.rank ?? 0,
       });
     }
   }
