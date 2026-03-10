@@ -100,6 +100,11 @@ const imageUrl = new URL(image, Astro.site);
         "url": "https://github.com/stoneforge-ai"
       }
     })} />
+    <!-- Plausible Analytics -->
+    <!-- TODO: Human action required — create a Plausible account and verify the domain stoneforge.ai -->
+    <!-- Uses tagged-events (CSS class-based custom events) + outbound-links (automatic external link tracking) -->
+    <script defer data-domain="stoneforge.ai" src="https://plausible.io/js/script.tagged-events.outbound-links.js"></script>
+
     <slot name="head" />
   </head>
   <body>
@@ -109,6 +114,7 @@ const imageUrl = new URL(image, Astro.site);
     </main>
     <Footer />
     <script src="../scripts/reveal.ts"></script>
+    <script src="../scripts/analytics.ts"></script>
     <script>
       // Copy to clipboard
       document.querySelectorAll('.copy-btn').forEach(btn => {
