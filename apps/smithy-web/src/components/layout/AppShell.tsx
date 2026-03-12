@@ -12,12 +12,14 @@ import { DaemonToggle } from './DaemonToggle';
 import { RateLimitBanner } from './RateLimitBanner';
 import { StopAllAgentsButton } from './StopAllAgentsButton';
 import { ThemeToggle } from '@stoneforge/ui';
-import { NotificationCenter } from '../notification';
+import { NotificationCenter, NotificationSidebar } from '../notification';
 import { CommandPalette, useCommandPalette, QuickFileOpen, useQuickFileOpen, FileContentSearch, useFileContentSearchShortcut } from '../command';
 import { useQuery } from '@tanstack/react-query';
 import { useNotifications } from '../../api/hooks/useNotifications';
+import { usePendingApprovalCount, useApprovalRequestWatcher } from '../../api/hooks/useApprovalRequests';
 import { useGlobalKeyboardShortcuts } from '../../hooks';
 import { useIsMobile, useIsTablet } from '@stoneforge/ui';
+import { toast } from 'sonner';
 import {
   ChevronRight,
   Activity,
@@ -328,6 +330,43 @@ export function AppShell() {
     clearAll,
   } = useNotifications();
 
+  // Notification sidebar state
+  const [notificationSidebarOpen, setNotificationSidebarOpen] = useState(false);
+
+  const toggleNotificationSidebar = useCallback(() => {
+    setNotificationSidebarOpen((prev) => !prev);
+  }, []);
+
+  const closeNotificationSidebar = useCallback(() => {
+    setNotificationSidebarOpen(false);
+  }, []);
+
+  // Pending approval requests count (adaptive polling)
+  const pendingApprovalCount = usePendingApprovalCount(notificationSidebarOpen);
+
+  // Watch for new approval requests and show toast
+  const openNotificationSidebar = useCallback(() => {
+    setNotificationSidebarOpen(true);
+  }, []);
+
+  useApprovalRequestWatcher({
+    sidebarOpen: notificationSidebarOpen,
+    onNewRequest: useCallback(
+      (request: { agentName?: string; agentId: string; toolName: string }) => {
+        const agentLabel = request.agentName || request.agentId;
+        toast.warning(`Approval needed: ${agentLabel}`, {
+          description: `${request.toolName} requires approval`,
+          duration: 8000,
+          action: {
+            label: 'View',
+            onClick: () => openNotificationSidebar(),
+          },
+        });
+      },
+      [openNotificationSidebar]
+    ),
+  });
+
   // Command palette
   const { open: commandPaletteOpen, setOpen: setCommandPaletteOpen } = useCommandPalette();
 
@@ -514,14 +553,11 @@ export function AppShell() {
               {/* Stop all running agents button */}
               {!isMobile && <StopAllAgentsButton />}
               <NotificationCenter
-                notifications={notifications}
                 unreadCount={unreadCount}
+                pendingApprovalCount={pendingApprovalCount}
                 isConnected={notificationsConnected}
-                onMarkAsRead={markAsRead}
-                onMarkAllAsRead={markAllAsRead}
-                onDismiss={dismissNotification}
-                onClearAll={clearAll}
-                onOpenSettings={() => router.navigate({ to: '/settings', search: { tab: 'preferences' } })}
+                onToggleSidebar={toggleNotificationSidebar}
+                sidebarOpen={notificationSidebarOpen}
               />
               <ThemeToggle />
               {!isMobile && (
@@ -563,6 +599,23 @@ export function AppShell() {
           onToggleMaximize={toggleDirectorMaximize}
         />
       )}
+
+      {/* Notification Sidebar */}
+      <NotificationSidebar
+        isOpen={notificationSidebarOpen}
+        onClose={closeNotificationSidebar}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        isConnected={notificationsConnected}
+        onMarkAsRead={markAsRead}
+        onMarkAllAsRead={markAllAsRead}
+        onDismiss={dismissNotification}
+        onClearAll={clearAll}
+        onOpenSettings={() => {
+          closeNotificationSidebar();
+          router.navigate({ to: '/settings', search: { tab: 'preferences' } });
+        }}
+      />
 
       {/* Command Palette (Cmd+K) */}
       <CommandPalette

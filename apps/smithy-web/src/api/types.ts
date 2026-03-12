@@ -588,6 +588,36 @@ export interface PlaybookFilter {
 }
 
 // ============================================================================
+// Approval Request Types
+// ============================================================================
+
+export type ApprovalRequestStatus = 'pending' | 'approved' | 'denied';
+
+export interface ApprovalRequest {
+  id: string;
+  agentId: EntityId;
+  sessionId: string;
+  toolName: string;
+  toolArgs: unknown;
+  status: ApprovalRequestStatus;
+  requestedAt: number;
+  resolvedAt?: number;
+  resolvedBy?: string;
+  /** Agent name, populated client-side from agent lookup */
+  agentName?: string;
+  /** Agent role, populated client-side from agent lookup */
+  agentRole?: AgentRole;
+}
+
+export interface ApprovalRequestsResponse {
+  requests: ApprovalRequest[];
+}
+
+export interface ApprovalRequestResponse {
+  request: ApprovalRequest;
+}
+
+// ============================================================================
 // Provider Metrics Types
 // ============================================================================
 
