@@ -22,6 +22,10 @@ import {
   VALID_CONFLICT_STRATEGIES,
   VALID_SYNC_DIRECTIONS,
   VALID_AUTO_LINK_PROVIDERS,
+  VALID_WORKFLOW_PRESETS,
+  VALID_PERMISSION_MODELS,
+  type WorkflowPreset,
+  type AgentPermissionModel,
 } from './types.js';
 import { parseDurationValue } from './duration.js';
 
@@ -264,6 +268,50 @@ export function convertYamlToConfig(yamlConfig: YamlConfigFile): PartialConfigur
     result.demoMode = yamlConfig.demo_mode;
   }
 
+  // Merge section
+  if (yamlConfig.merge) {
+    result.merge = {};
+    if (yamlConfig.merge.auto_merge !== undefined) {
+      result.merge.autoMerge = yamlConfig.merge.auto_merge;
+    }
+    if (yamlConfig.merge.target_branch !== undefined) {
+      result.merge.targetBranch = yamlConfig.merge.target_branch;
+    }
+    if (yamlConfig.merge.require_approval !== undefined) {
+      result.merge.requireApproval = yamlConfig.merge.require_approval;
+    }
+  }
+
+  // Workflow section
+  if (yamlConfig.workflow) {
+    result.workflow = {};
+    if (yamlConfig.workflow.preset !== undefined) {
+      if (yamlConfig.workflow.preset !== null && !VALID_WORKFLOW_PRESETS.includes(yamlConfig.workflow.preset as WorkflowPreset)) {
+        throw new ValidationError(
+          `Invalid workflow preset: '${yamlConfig.workflow.preset}'. Must be one of: ${VALID_WORKFLOW_PRESETS.join(', ')}`,
+          ErrorCode.INVALID_INPUT,
+          { field: 'workflow.preset', value: yamlConfig.workflow.preset }
+        );
+      }
+      result.workflow.preset = yamlConfig.workflow.preset as WorkflowPreset | null;
+    }
+  }
+
+  // Agents section
+  if (yamlConfig.agents) {
+    result.agents = {};
+    if (yamlConfig.agents.permission_model !== undefined) {
+      if (!VALID_PERMISSION_MODELS.includes(yamlConfig.agents.permission_model as AgentPermissionModel)) {
+        throw new ValidationError(
+          `Invalid permission model: '${yamlConfig.agents.permission_model}'. Must be one of: ${VALID_PERMISSION_MODELS.join(', ')}`,
+          ErrorCode.INVALID_INPUT,
+          { field: 'agents.permissionModel', value: yamlConfig.agents.permission_model }
+        );
+      }
+      result.agents.permissionModel = yamlConfig.agents.permission_model as AgentPermissionModel;
+    }
+  }
+
   // External sync section
   if (yamlConfig.external_sync) {
     result.externalSync = {};
@@ -432,6 +480,45 @@ export function convertConfigToYaml(config: Configuration | PartialConfiguration
     };
   }
 
+  // Merge section
+  if (config.merge) {
+    const merge: NonNullable<YamlConfigFile['merge']> = {};
+    if (config.merge.autoMerge !== undefined) {
+      merge.auto_merge = config.merge.autoMerge;
+    }
+    if (config.merge.targetBranch !== undefined) {
+      merge.target_branch = config.merge.targetBranch;
+    }
+    if (config.merge.requireApproval !== undefined) {
+      merge.require_approval = config.merge.requireApproval;
+    }
+    if (Object.keys(merge).length > 0) {
+      result.merge = merge;
+    }
+  }
+
+  // Workflow section
+  if (config.workflow) {
+    const workflow: NonNullable<YamlConfigFile['workflow']> = {};
+    if (config.workflow.preset !== undefined) {
+      workflow.preset = config.workflow.preset;
+    }
+    if (Object.keys(workflow).length > 0) {
+      result.workflow = workflow;
+    }
+  }
+
+  // Agents section
+  if (config.agents) {
+    const agents: NonNullable<YamlConfigFile['agents']> = {};
+    if (config.agents.permissionModel !== undefined) {
+      agents.permission_model = config.agents.permissionModel;
+    }
+    if (Object.keys(agents).length > 0) {
+      result.agents = agents;
+    }
+  }
+
   // External sync section
   if (config.externalSync) {
     const es: NonNullable<YamlConfigFile['external_sync']> = {};
@@ -526,6 +613,9 @@ export function updateConfigFile(
     tombstone: updates.tombstone ? { ...existing.tombstone, ...updates.tombstone } : existing.tombstone,
     identity: updates.identity ? { ...existing.identity, ...updates.identity } : existing.identity,
     externalSync: updates.externalSync ? { ...existing.externalSync, ...updates.externalSync } : existing.externalSync,
+    merge: updates.merge ? { ...existing.merge, ...updates.merge } : existing.merge,
+    workflow: updates.workflow ? { ...existing.workflow, ...updates.workflow } : existing.workflow,
+    agents: updates.agents ? { ...existing.agents, ...updates.agents } : existing.agents,
   };
 
   writeConfigFile(filePath, merged);

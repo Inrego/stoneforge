@@ -8,6 +8,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import type { Command, GlobalOptions, CommandResult } from '../types.js';
 import { success, failure, ExitCode } from '../types.js';
@@ -28,6 +29,9 @@ import { EntityTypeValue, asEntityId } from '@stoneforge/core';
 import { createSyncService } from '../../sync/service.js';
 import { installSkillsToWorkspace } from './install.js';
 import type { QuarryAPI } from '../../api/quarry-api.js';
+import type { WorkflowPreset, PartialConfiguration } from '../../config/types.js';
+import { VALID_WORKFLOW_PRESETS } from '../../config/types.js';
+import { updateConfigFile } from '../../config/file.js';
 
 // ============================================================================
 // Constants
@@ -362,6 +366,88 @@ async function createDefaultAgents(
 }
 
 // ============================================================================
+// Workflow Preset Definitions
+// ============================================================================
+
+/**
+ * Config values produced by each workflow preset.
+ * Runtime behavior is driven by individual config values, not the preset name.
+ */
+export const WORKFLOW_PRESET_CONFIGS: Record<WorkflowPreset, PartialConfiguration> = {
+  auto: {
+    merge: {
+      autoMerge: true,
+      targetBranch: null,
+      requireApproval: false,
+    },
+    workflow: { preset: 'auto' },
+    agents: { permissionModel: 'unrestricted' },
+  },
+  review: {
+    merge: {
+      autoMerge: true,
+      targetBranch: 'stoneforge/review',
+      requireApproval: false,
+    },
+    workflow: { preset: 'review' },
+    agents: { permissionModel: 'unrestricted' },
+  },
+  approve: {
+    merge: {
+      autoMerge: false,
+      targetBranch: null,
+      requireApproval: true,
+    },
+    workflow: { preset: 'approve' },
+    agents: { permissionModel: 'restricted' },
+  },
+};
+
+const PRESET_DESCRIPTIONS: Record<WorkflowPreset, string> = {
+  auto: 'Agents merge directly to main. Fast iteration, no human review.',
+  review: 'Agents merge to a review branch. You review and merge to main.',
+  approve: 'Agents need approval for restricted actions. Merges via GitHub PRs.',
+};
+
+/**
+ * Prompts the user to choose a workflow preset interactively.
+ */
+async function promptWorkflowPreset(): Promise<WorkflowPreset> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const presets: WorkflowPreset[] = ['auto', 'review', 'approve'];
+
+  return new Promise((resolve) => {
+    const lines = [
+      '? Choose a workflow preset:',
+      ...presets.map((p, i) => {
+        const label = p.charAt(0).toUpperCase() + p.slice(1);
+        const prefix = i === 0 ? '  ❯ ' : '    ';
+        return `${prefix}${label.padEnd(10)}— ${PRESET_DESCRIPTIONS[p]}`;
+      }),
+      '',
+      'Enter preset (auto/review/approve) [auto]: ',
+    ];
+
+    rl.question(lines.join('\n'), (answer) => {
+      rl.close();
+      const trimmed = answer.trim().toLowerCase();
+      if (trimmed === '' || trimmed === 'auto') {
+        resolve('auto');
+      } else if (VALID_WORKFLOW_PRESETS.includes(trimmed as WorkflowPreset)) {
+        resolve(trimmed as WorkflowPreset);
+      } else {
+        // Default to 'auto' on invalid input
+        resolve('auto');
+      }
+    });
+  });
+}
+
+// ============================================================================
 // Command Options
 // ============================================================================
 
@@ -369,6 +455,7 @@ interface InitOptions {
   name?: string;
   actor?: string;
   demo?: boolean;
+  preset?: string;
 }
 
 // ============================================================================
@@ -412,6 +499,22 @@ async function initHandler(
 
     const isDemo = options.demo === true;
 
+    // Determine workflow preset
+    let selectedPreset: WorkflowPreset | undefined;
+    if (options.preset) {
+      const presetLower = options.preset.toLowerCase();
+      if (!VALID_WORKFLOW_PRESETS.includes(presetLower as WorkflowPreset)) {
+        return failure(
+          `Invalid preset '${options.preset}'. Must be one of: ${VALID_WORKFLOW_PRESETS.join(', ')}`,
+          ExitCode.VALIDATION
+        );
+      }
+      selectedPreset = presetLower as WorkflowPreset;
+    } else if (process.stdin.isTTY) {
+      // Interactive prompt only when running in a terminal
+      selectedPreset = await promptWorkflowPreset();
+    }
+
     // Create config file (skip if already present)
     const configPath = join(stoneforgeDir, CONFIG_FILENAME);
     if (!existsSync(configPath)) {
@@ -427,6 +530,12 @@ async function initHandler(
         config = config.replace('# actor: my-agent', `actor: ${options.actor}`);
       }
       writeFileSync(configPath, config);
+    }
+
+    // Apply workflow preset config values to config file
+    if (selectedPreset) {
+      const presetConfig = WORKFLOW_PRESET_CONFIGS[selectedPreset];
+      updateConfigFile(configPath, presetConfig);
     }
 
     // Create gitignore (skip if already present)
@@ -537,9 +646,13 @@ async function initHandler(
 
     const nameMessage = options.name ? `\nWorkspace name: ${options.name}` : '';
 
+    const presetMessage = selectedPreset
+      ? `\nWorkflow preset: ${selectedPreset} — ${PRESET_DESCRIPTIONS[selectedPreset]}`
+      : '';
+
     return success(
-      { path: stoneforgeDir, operatorId: OPERATOR_ENTITY_ID, agentsMdCreated, skillsInstalled, agentsCreated: agentResult.created, demoMode: isDemo, name: options.name },
-      `${baseMessage}${nameMessage}\nCreated default operator entity: ${OPERATOR_ENTITY_ID}${agentsMessage}${agentsMdMessage}${importMessage}${skillsMessage}${demoModeNotice}`
+      { path: stoneforgeDir, operatorId: OPERATOR_ENTITY_ID, agentsMdCreated, skillsInstalled, agentsCreated: agentResult.created, demoMode: isDemo, name: options.name, preset: selectedPreset },
+      `${baseMessage}${nameMessage}${presetMessage}\nCreated default operator entity: ${OPERATOR_ENTITY_ID}${agentsMessage}${agentsMdMessage}${importMessage}${skillsMessage}${demoModeNotice}`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -554,7 +667,7 @@ async function initHandler(
 export const initCommand: Command = {
   name: 'init',
   description: 'Initialize a new Stoneforge workspace',
-  usage: 'sf init [--name <name>] [--actor <actor>] [--demo]',
+  usage: 'sf init [--name <name>] [--actor <actor>] [--demo] [--preset auto|review|approve]',
   help: `Initialize a new Stoneforge workspace in the current directory.
 
 Creates a .stoneforge/ directory containing:
@@ -574,8 +687,14 @@ Default agents are automatically created:
 
 Re-running init is safe — existing agents are not duplicated.
 
+Workflow presets configure merge and agent permission behavior:
+  Auto    — Agents merge directly to main. Fast iteration, no human review.
+  Review  — Agents merge to a review branch. You review and merge to main.
+  Approve — Agents need approval for restricted actions. Merges via GitHub PRs.
+
 Options:
   --name    Set the workspace name (stored in config.yaml).
+  --preset  Set workflow preset (auto, review, approve). Skips interactive prompt.
   --demo    Enable demo mode. Configures all agents to use the free
             opencode/minimax-m2.5-free provider (no API keys required).`,
   options: [
@@ -587,6 +706,11 @@ Options:
     {
       name: 'actor',
       description: 'Default actor for operations',
+      hasValue: true,
+    },
+    {
+      name: 'preset',
+      description: 'Workflow preset (auto, review, approve)',
       hasValue: true,
     },
     {

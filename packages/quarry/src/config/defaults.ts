@@ -6,7 +6,7 @@
  */
 
 import { IdentityMode } from '../systems/identity.js';
-import type { Configuration, SyncConfig, PlaybookConfig, TombstoneConfig, IdentityConfigSection, PluginsConfig, ExternalSyncConfig } from './types.js';
+import type { Configuration, SyncConfig, PlaybookConfig, TombstoneConfig, IdentityConfigSection, PluginsConfig, ExternalSyncConfig, MergeConfig, WorkflowConfig, AgentsConfig } from './types.js';
 
 // ============================================================================
 // Time Constants (in milliseconds)
@@ -85,6 +85,29 @@ export const DEFAULT_EXTERNAL_SYNC_CONFIG: ExternalSyncConfig = {
 };
 
 /**
+ * Default merge configuration
+ */
+export const DEFAULT_MERGE_CONFIG: MergeConfig = {
+  autoMerge: true,
+  targetBranch: null,
+  requireApproval: false,
+};
+
+/**
+ * Default workflow configuration
+ */
+export const DEFAULT_WORKFLOW_CONFIG: WorkflowConfig = {
+  preset: null,
+};
+
+/**
+ * Default agents configuration
+ */
+export const DEFAULT_AGENTS_CONFIG: AgentsConfig = {
+  permissionModel: 'unrestricted',
+};
+
+/**
  * Complete default configuration
  */
 export const DEFAULT_CONFIG: Configuration = {
@@ -99,6 +122,9 @@ export const DEFAULT_CONFIG: Configuration = {
   plugins: DEFAULT_PLUGINS_CONFIG,
   externalSync: DEFAULT_EXTERNAL_SYNC_CONFIG,
   demoMode: false,
+  merge: DEFAULT_MERGE_CONFIG,
+  workflow: DEFAULT_WORKFLOW_CONFIG,
+  agents: DEFAULT_AGENTS_CONFIG,
 };
 
 // ============================================================================
@@ -162,5 +188,8 @@ export function getDefaultConfig(): Configuration {
     plugins: { packages: [...DEFAULT_PLUGINS_CONFIG.packages] },
     externalSync: { ...DEFAULT_EXTERNAL_SYNC_CONFIG },
     demoMode: DEFAULT_CONFIG.demoMode,
+    merge: { ...DEFAULT_MERGE_CONFIG },
+    workflow: { ...DEFAULT_WORKFLOW_CONFIG },
+    agents: { ...DEFAULT_AGENTS_CONFIG },
   };
 }

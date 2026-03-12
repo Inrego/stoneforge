@@ -108,6 +108,65 @@ export interface ExternalSyncConfig {
   autoLinkDocumentProvider?: string;
 }
 
+// ============================================================================
+// Workflow Preset Types
+// ============================================================================
+
+/**
+ * Workflow preset names
+ */
+export type WorkflowPreset = 'auto' | 'review' | 'approve';
+
+/**
+ * Valid workflow preset values
+ */
+export const VALID_WORKFLOW_PRESETS: readonly WorkflowPreset[] = [
+  'auto',
+  'review',
+  'approve',
+] as const;
+
+/**
+ * Agent permission model
+ */
+export type AgentPermissionModel = 'unrestricted' | 'restricted';
+
+/**
+ * Valid agent permission model values
+ */
+export const VALID_PERMISSION_MODELS: readonly AgentPermissionModel[] = [
+  'unrestricted',
+  'restricted',
+] as const;
+
+/**
+ * Merge configuration settings
+ */
+export interface MergeConfig {
+  /** Whether to auto-merge when tests pass (default: true) */
+  autoMerge: boolean;
+  /** Target branch for merges (default: null = auto-detect main/master) */
+  targetBranch: string | null;
+  /** Whether merges require approval (default: false) */
+  requireApproval: boolean;
+}
+
+/**
+ * Workflow configuration settings
+ */
+export interface WorkflowConfig {
+  /** The workflow preset used during init (for display/reference only) */
+  preset: WorkflowPreset | null;
+}
+
+/**
+ * Agents configuration settings
+ */
+export interface AgentsConfig {
+  /** Permission model for agents (default: 'unrestricted') */
+  permissionModel: AgentPermissionModel;
+}
+
 /**
  * Valid conflict strategy values
  */
@@ -163,6 +222,12 @@ export interface Configuration {
   externalSync: ExternalSyncConfig;
   /** Demo mode: configures all agents to use opencode provider with minimax-m2.5-free model (default: false) */
   demoMode: boolean;
+  /** Merge settings */
+  merge: MergeConfig;
+  /** Workflow settings */
+  workflow: WorkflowConfig;
+  /** Agents settings */
+  agents: AgentsConfig;
 }
 
 /**
@@ -180,6 +245,9 @@ export type PartialConfiguration = {
   plugins?: Partial<PluginsConfig>;
   externalSync?: Partial<ExternalSyncConfig>;
   demoMode?: boolean;
+  merge?: Partial<MergeConfig>;
+  workflow?: Partial<WorkflowConfig>;
+  agents?: Partial<AgentsConfig>;
 };
 
 // ============================================================================
@@ -250,6 +318,17 @@ export interface TrackedConfiguration {
     autoLinkDocumentProvider?: TrackedValue<string>;
   };
   demoMode: TrackedValue<boolean>;
+  merge: {
+    autoMerge: TrackedValue<boolean>;
+    targetBranch: TrackedValue<string | null>;
+    requireApproval: TrackedValue<boolean>;
+  };
+  workflow: {
+    preset: TrackedValue<WorkflowPreset | null>;
+  };
+  agents: {
+    permissionModel: TrackedValue<AgentPermissionModel>;
+  };
 }
 
 // ============================================================================
@@ -295,6 +374,17 @@ export interface YamlConfigFile {
     auto_link_document_provider?: string;
   };
   demo_mode?: boolean;
+  merge?: {
+    auto_merge?: boolean;
+    target_branch?: string | null;
+    require_approval?: boolean;
+  };
+  workflow?: {
+    preset?: string | null;
+  };
+  agents?: {
+    permission_model?: string;
+  };
 }
 
 // ============================================================================
@@ -399,6 +489,11 @@ export const VALID_CONFIG_PATHS = [
   'externalSync.autoLinkProvider',
   'externalSync.autoLinkDocumentProvider',
   'demoMode',
+  'merge.autoMerge',
+  'merge.targetBranch',
+  'merge.requireApproval',
+  'workflow.preset',
+  'agents.permissionModel',
 ] as const;
 
 /**
@@ -439,4 +534,9 @@ export interface ConfigPathTypes {
   'externalSync.autoLinkProvider': string | undefined;
   'externalSync.autoLinkDocumentProvider': string | undefined;
   demoMode: boolean;
+  'merge.autoMerge': boolean;
+  'merge.targetBranch': string | null;
+  'merge.requireApproval': boolean;
+  'workflow.preset': WorkflowPreset | null;
+  'agents.permissionModel': AgentPermissionModel;
 }
