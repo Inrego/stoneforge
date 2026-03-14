@@ -337,7 +337,6 @@ export class ClaudeHeadlessProvider implements HeadlessProvider {
     // Build environment
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
-      CLAUDE_CODE_DISABLE_1M_CONTEXT: '1',
       ...options.environmentVariables,
     };
     if (options.stoneforgeRoot) {
