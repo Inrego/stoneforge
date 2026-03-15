@@ -573,7 +573,10 @@ export class SessionManagerImpl implements SessionManager {
     const spawnOptions: SpawnOptions = {
       workingDirectory: options?.workingDirectory,
       initialPrompt: options?.initialPrompt,
-      environmentVariables: options?.environmentVariables,
+      environmentVariables: {
+        ...options?.environmentVariables,
+        SF_ENTITY_ID: agentId,
+      },
       mode: useInteractive ? 'interactive' : 'headless',
       cols: options?.cols,
       rows: options?.rows,
@@ -698,6 +701,9 @@ export class SessionManagerImpl implements SessionManager {
       workingDirectory,
       resumeSessionId: options.providerSessionId,
       initialPrompt: effectivePrompt,
+      environmentVariables: {
+        SF_ENTITY_ID: agentId,
+      },
       provider: providerOverride,
       model: modelFromMeta,
       claudePath: resolvedExecutablePath,
