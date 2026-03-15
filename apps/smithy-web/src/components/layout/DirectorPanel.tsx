@@ -91,6 +91,19 @@ export function DirectorPanel({ collapsed = false, onToggle, isMaximized = false
     }
   }, [directors, activeDirectorId]);
 
+  // Listen for select-director-tab event (relayed from AppShell when
+  // open-director-panel includes a specific directorId)
+  useEffect(() => {
+    const handleSelectTab = (e: Event) => {
+      const detail = (e as CustomEvent<{ directorId: string }>).detail;
+      if (detail?.directorId) {
+        setActiveDirectorId(detail.directorId);
+      }
+    };
+    window.addEventListener('select-director-tab', handleSelectTab);
+    return () => window.removeEventListener('select-director-tab', handleSelectTab);
+  }, []);
+
   // Director IDs for unread counts
   const directorIds = useMemo(() => directors.map((d) => d.director.id), [directors]);
   const unreadCounts = useDirectorUnreadCounts(directorIds);

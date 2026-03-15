@@ -16,7 +16,7 @@ import type { AgentOutput } from '../../api/hooks/useActiveAgentOutputs.js';
 
 interface ActiveAgentsDashboardProps {
   onOpenTerminal: (agentId: string) => void;
-  onOpenDirectorPanel: () => void;
+  onOpenDirectorPanel: (agentId?: string) => void;
   onStopAgent: (agentId: string) => Promise<void>;
 }
 
@@ -166,7 +166,7 @@ export function ActiveAgentsDashboard({ onOpenTerminal, onOpenDirectorPanel, onS
             lastOutput={effectiveOutput}
             onOpenTerminal={
               session.agentRole === 'director'
-                ? () => onOpenDirectorPanel()
+                ? () => onOpenDirectorPanel(agent.id)
                 : () => onOpenTerminal(agent.id)
             }
             onStop={handleStop}

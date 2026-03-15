@@ -586,9 +586,15 @@ export function AppShell() {
   }, [toggleDirectorMaximize]);
 
   // Listen for open-director-panel event (e.g., from Agents page "Open" button)
+  // Includes optional directorId in detail to select a specific director tab
   useEffect(() => {
-    const handleOpenDirector = () => {
+    const handleOpenDirector = (e: Event) => {
       setDirectorCollapsed(false);
+      const detail = (e as CustomEvent<{ directorId?: string }>).detail;
+      if (detail?.directorId) {
+        // Relay to DirectorPanel so it can switch to the requested director tab
+        window.dispatchEvent(new CustomEvent('select-director-tab', { detail: { directorId: detail.directorId } }));
+      }
     };
     window.addEventListener('open-director-panel', handleOpenDirector);
     return () => window.removeEventListener('open-director-panel', handleOpenDirector);

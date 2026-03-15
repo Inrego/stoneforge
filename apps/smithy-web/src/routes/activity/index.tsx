@@ -46,8 +46,8 @@ export function ActivityPage() {
     [navigate]
   );
 
-  const handleOpenDirectorPanel = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('open-director-panel'));
+  const handleOpenDirectorPanel = useCallback((agentId?: string) => {
+    window.dispatchEvent(new CustomEvent('open-director-panel', { detail: { directorId: agentId } }));
   }, []);
 
   const handleStopAgent = useCallback(
