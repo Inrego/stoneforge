@@ -23,6 +23,8 @@ import { toast } from 'sonner';
 import { OnboardingTour, type TourStep } from '../onboarding';
 import { useWorkflowPreset } from '../../api/hooks/useWorkflowPreset';
 import { useDirector } from '../../api/hooks/useAgents';
+import { useProviderCheck } from '../../hooks/useProviderCheck';
+import { ProviderInstallModal } from '../provider/ProviderInstallModal';
 import {
   ChevronRight,
   Activity,
@@ -373,6 +375,10 @@ export function AppShell() {
   const health = useHealth();
   const router = useRouter();
 
+  // Provider installation check — blocks the app if providers are missing
+  const providerCheck = useProviderCheck();
+  const hasProviderIssues = !providerCheck.isLoading && providerCheck.missingProviders.length > 0;
+
   // Onboarding tour
   const workflowPreset = useWorkflowPreset();
   const { director: directorAgent } = useDirector();
@@ -405,6 +411,7 @@ export function AppShell() {
       !workflowPreset.isLoading &&
       !onboardingTour.isCompleted &&
       !onboardingTour.isActive &&
+      !hasProviderIssues &&
       routerState2.location.pathname === '/activity'
     ) {
       // Small delay to let the page render before starting the tour
@@ -418,6 +425,7 @@ export function AppShell() {
     workflowPreset.isLoading,
     onboardingTour.isCompleted,
     onboardingTour.isActive,
+    hasProviderIssues,
     routerState2.location.pathname,
   ]);
 
@@ -766,6 +774,15 @@ export function AppShell() {
         open={fileContentSearchOpen}
         onOpenChange={setFileContentSearchOpen}
       />
+
+      {/* Provider Installation Check Modal — blocks app until resolved */}
+      {hasProviderIssues && (
+        <ProviderInstallModal
+          missingProviders={providerCheck.missingProviders}
+          onVerify={providerCheck.verifyProvider}
+          isVerifying={providerCheck.isVerifying}
+        />
+      )}
 
       {/* Onboarding Tour */}
       <OnboardingTour
