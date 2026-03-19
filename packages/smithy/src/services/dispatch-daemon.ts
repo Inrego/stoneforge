@@ -2984,8 +2984,13 @@ export class DispatchDaemonImpl implements DispatchDaemon {
 
     // Load and include the steward role prompt, rendering template variables
     const roleResult = loadRolePrompt('steward', stewardFocus, { projectRoot: this.config.projectRoot });
+    // Get orchestrator metadata early — needed for baseBranch and later for PR/branch info
+    const taskMeta = task.metadata as Record<string, unknown> | undefined;
+    const orchestratorMeta = taskMeta?.orchestrator as Record<string, unknown> | undefined;
+    const taskOrcMeta = getOrchestratorTaskMeta(task.metadata as Record<string, unknown> | undefined);
+
     if (roleResult) {
-      const baseBranch = await this.getTargetBranch();
+      const baseBranch = taskOrcMeta?.targetBranch ?? await this.getTargetBranch();
       const renderedPrompt = renderPromptTemplate(roleResult.prompt, { baseBranch });
       parts.push(
         'Please read and internalize the following operating instructions. These define your role and how you should behave:',
@@ -3003,14 +3008,9 @@ export class DispatchDaemonImpl implements DispatchDaemon {
       parts.push(stewardPresetSection, '', '---', '');
     }
 
-    // Get orchestrator metadata for PR/branch info
-    const taskMeta = task.metadata as Record<string, unknown> | undefined;
-    const orchestratorMeta = taskMeta?.orchestrator as Record<string, unknown> | undefined;
+    // Get PR/branch info from orchestrator metadata
     const prUrl = orchestratorMeta?.mergeRequestUrl as string | undefined;
     const branch = orchestratorMeta?.branch as string | undefined;
-
-    // Get the director ID for context — prefer the task's owning director
-    const taskOrcMeta = getOrchestratorTaskMeta(task.metadata as Record<string, unknown> | undefined);
     const owningDirectorId = taskOrcMeta?.owningDirector;
     const director = owningDirectorId
       ? await this.agentRegistry.getAvailableDirector(owningDirectorId)
@@ -3500,7 +3500,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
     // Load the recovery steward role prompt, rendering template variables
     const roleResult = loadRolePrompt('steward', 'recovery' as StewardFocus, { projectRoot: this.config.projectRoot });
     if (roleResult) {
-      const baseBranch = await this.getTargetBranch();
+      const baseBranch = taskMeta?.targetBranch ?? await this.getTargetBranch();
       const renderedPrompt = renderPromptTemplate(roleResult.prompt, { baseBranch });
       parts.push(
         'Please read and internalize the following operating instructions. These define your role and how you should behave:',
