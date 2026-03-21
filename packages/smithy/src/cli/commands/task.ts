@@ -1030,6 +1030,70 @@ async function taskMergeStatusHandler(
         return failure(`Task not found: ${taskId}`, ExitCode.GENERAL_ERROR);
       }
 
+      // Safety verification: when marking as 'merged', verify commits are actually on origin/target
+      if (status === 'merged') {
+        const { getOrchestratorTaskMeta } = await import('../../types/task-meta.js');
+        const orchestratorMeta = getOrchestratorTaskMeta(task.metadata as Record<string, unknown>);
+        const branch = orchestratorMeta?.branch;
+        const targetBranch = orchestratorMeta?.targetBranch;
+
+        // Only verify if the task has branch metadata (skip for legacy/edge cases)
+        if (branch) {
+          const { findStoneforgeDir } = await import('@stoneforge/quarry');
+          const stoneforgeDir = findStoneforgeDir(process.cwd());
+
+          if (stoneforgeDir) {
+            const { default: path } = await import('node:path');
+            const { exec } = await import('node:child_process');
+            const { promisify } = await import('node:util');
+            const execAsync = promisify(exec);
+            const workspaceRoot = path.dirname(stoneforgeDir);
+
+            // Check if a remote exists (skip verification for local-only workspaces)
+            let hasRemote = false;
+            try {
+              const { stdout } = await execAsync('git remote', { cwd: workspaceRoot, encoding: 'utf8' });
+              hasRemote = stdout.trim().length > 0;
+            } catch { /* no remote */ }
+
+            if (hasRemote) {
+              // Determine effective target branch
+              const { detectTargetBranch } = await import('../../git/merge.js');
+              const effectiveTarget = targetBranch ?? await detectTargetBranch(workspaceRoot);
+
+              try {
+                // Fetch latest from origin
+                await execAsync('git fetch origin', { cwd: workspaceRoot, encoding: 'utf8', timeout: 60_000 });
+
+                // Check if the source branch has commits not on origin/{targetBranch}
+                const { stdout: countStr } = await execAsync(
+                  `git rev-list --count origin/${effectiveTarget}..${branch}`,
+                  { cwd: workspaceRoot, encoding: 'utf8' }
+                );
+                const count = parseInt(countStr.trim(), 10);
+
+                if (count > 0) {
+                  return failure(
+                    `Cannot mark as merged: branch ${branch} has ${count} commit(s) not on origin/${effectiveTarget}. ` +
+                    `Use 'sf task merge' instead to merge and push, or use 'not_applicable' if no merge is needed.`,
+                    ExitCode.GENERAL_ERROR
+                  );
+                }
+              } catch (verifyErr) {
+                // If the branch ref doesn't exist (already deleted), that's fine — commits were merged
+                const errMsg = (verifyErr as Error).message ?? '';
+                if (!errMsg.includes('unknown revision') && !errMsg.includes('bad revision')) {
+                  return failure(
+                    `Cannot mark as merged: verification failed: ${errMsg}`,
+                    ExitCode.GENERAL_ERROR
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+
       const { updateOrchestratorTaskMeta } = await import('../../types/task-meta.js');
       const now = createTimestamp();
       const newMeta = updateOrchestratorTaskMeta(
