@@ -516,6 +516,7 @@ async function taskMergeHandler(
       {
         mergeStatus: 'merged' as import('../../types/task-meta.js').MergeStatus,
         completedAt: now,
+        ...(mergeResult.commitHash ? { mergeCommitHash: mergeResult.commitHash } : {}),
         ...(options.summary ? { completionSummary: options.summary } : {}),
       }
     );
