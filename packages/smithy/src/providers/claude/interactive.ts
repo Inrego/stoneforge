@@ -126,6 +126,7 @@ export class ClaudeInteractiveProvider implements InteractiveProvider {
     // Build environment
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
+      CLAUDECODE: '1',
       ...options.environmentVariables,
     };
     if (options.stoneforgeRoot) {
