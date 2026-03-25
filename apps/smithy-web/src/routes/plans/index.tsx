@@ -189,7 +189,7 @@ export function PlansPage() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
+    <div className="flex-1 flex flex-col h-full overflow-hidden" data-testid="plans-page">
       {/* Header */}
       <PageHeader
         title="Plans"

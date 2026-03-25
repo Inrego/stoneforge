@@ -309,49 +309,262 @@ function useDirectorPanelState() {
 // ============================================================================
 
 const ONBOARDING_STEPS: TourStep[] = [
+  // ── Section 1: Command Center (route: /activity) ──────────────────────
   {
-    id: 'activity-dashboard',
+    id: 'welcome',
     targetTestId: 'activity-page',
-    title: 'Activity Dashboard',
+    title: 'Welcome to Stoneforge',
     description:
-      'This is your command center. See all active agents and their current work.',
-  },
-  {
-    id: 'agent-cards',
-    targetTestId: 'active-agents-section',
-    title: 'Agent Cards',
-    description:
-      'Each card shows an agent\'s status, task, and output. Interactive agents have a terminal; headless agents show their latest output.',
+      'Your command center -- see all active agents, tasks, and system health at a glance.',
+    section: 'Command Center',
   },
   {
     id: 'system-status',
     targetTestId: 'system-status-bar',
-    title: 'System Status Bar',
+    title: 'System Status',
     description:
-      'Monitor daemon health and connection status at a glance.',
+      'These indicators show active agents, in-progress tasks, and merge request pipeline health. A quick pulse check.',
+    section: 'Command Center',
   },
   {
-    id: 'sidebar',
-    targetTestId: 'sidebar',
-    title: 'Sidebar Navigation',
+    id: 'agent-cards',
+    targetTestId: 'active-agents-section',
+    title: 'Active Agents',
     description:
-      'Navigate between tasks, plans, agents, workspaces, and more.',
+      'Each card is a running agent showing its status, current task, and live output. Click one to open its terminal.',
+    section: 'Command Center',
+  },
+  {
+    id: 'header-bar',
+    targetTestId: 'header',
+    title: 'Global Controls',
+    description:
+      'The header gives you the command palette (Cmd+K), daemon toggle, emergency stop, notifications, and theme switch -- available on every page.',
+    section: 'Command Center',
+  },
+
+  // ── Section 2: Managing Work (routes: /tasks, /plans, /merge-requests) ─
+  {
+    id: 'tasks-overview',
+    targetTestId: 'tasks-page',
+    title: 'Task Board',
+    description:
+      'All work items live here. Switch between list and Kanban views, filter by status tabs, search, sort, and group tasks however you like.',
+    section: 'Managing Work',
+    route: '/tasks',
+  },
+  {
+    id: 'tasks-create',
+    targetTestId: 'tasks-create',
+    title: 'Create Tasks',
+    description:
+      'Click here to create new tasks. Assign them to agents, set priorities, and attach them to plans.',
+    section: 'Managing Work',
+    route: '/tasks',
+  },
+  {
+    id: 'tasks-views',
+    targetTestId: 'tasks-tab-in-progress',
+    title: 'Status Tabs',
+    description:
+      'Filter tasks by lifecycle stage. "In Progress" and "Awaiting Merge" show what agents are actively working on.',
+    section: 'Managing Work',
+    route: '/tasks',
+  },
+  {
+    id: 'plans-overview',
+    targetTestId: 'plans-page',
+    title: 'Plans & Roadmap',
+    description:
+      'Plans group related tasks into a coordinated effort. Switch to Roadmap view for a timeline visualization.',
+    section: 'Managing Work',
+    route: '/plans',
+  },
+  {
+    id: 'merge-requests',
+    targetTestId: 'merge-requests-page',
+    title: 'Merge Requests',
+    description:
+      'When agents complete work, their branches appear here. Review diffs, approve, request changes, or merge directly.',
+    section: 'Managing Work',
+    route: '/merge-requests',
+  },
+
+  // ── Section 3: Agent Fleet (routes: /agents, /workspaces) ─────────────
+  {
+    id: 'agents-overview',
+    targetTestId: 'agents-page',
+    title: 'Agent Registry',
+    description:
+      'Meet your fleet: Directors orchestrate, Workers execute tasks, Stewards review code. Create, configure, and manage agents here.',
+    section: 'Agent Fleet',
+    route: '/agents',
+  },
+  {
+    id: 'agents-create',
+    targetTestId: 'agents-create',
+    title: 'Create Agents',
+    description:
+      'Add new agents to expand your team. Each worker gets its own git worktree and can be assigned tasks independently.',
+    section: 'Agent Fleet',
+    route: '/agents',
+  },
+  {
+    id: 'workspaces-overview',
+    targetTestId: 'workspaces-page',
+    title: 'Workspaces',
+    description:
+      'A tmux-like multiplexer. Watch agents work in real time, interact with their terminals, or run commands yourself.',
+    section: 'Agent Fleet',
+    route: '/workspaces',
+  },
+  {
+    id: 'workspaces-layout',
+    targetTestId: 'workspaces-layout-btn',
+    title: 'Layout Presets',
+    description:
+      'Choose single, columns, rows, or grid layouts. Add panes to monitor multiple agents side by side.',
+    section: 'Agent Fleet',
+    route: '/workspaces',
+  },
+
+  // ── Section 4: The Director (right sidebar, no route) ─────────────────
+  // All conditionally enabled based on directorAgent existence.
+  // onActivate callbacks are wired in the tourSteps useMemo below.
+  {
+    id: 'director-intro',
+    targetTestId: 'director-panel',
+    title: 'Meet the Director',
+    description:
+      'The Director is your AI orchestrator. It reads your backlog, creates plans, assigns tasks to workers, and manages the entire workflow. This panel is your primary interface.',
+    section: 'The Director',
+  },
+  {
+    id: 'director-tabs',
+    targetTestId: 'director-panel-header',
+    title: 'Director Tabs',
+    description:
+      'Each tab is a separate director session. Click (+) to create new directors, right-click a tab to delete one.',
+    section: 'The Director',
+  },
+  {
+    id: 'director-actions',
+    targetTestId: 'director-panel-header',
+    title: 'Director Actions',
+    description:
+      'The toolbar gives you key controls: the pickaxe icon sifts your backlog, the mail icon shows pending messages to process, and the branch indicator sets the target git branch.',
+    section: 'The Director',
+  },
+  {
+    id: 'director-start',
+    targetTestId: 'director-panel-header',
+    title: 'Start the Director',
+    description:
+      'Click the green play button to start a director session. Once running, use the yellow restart button to reset it, or the red stop button to end the session.',
+    section: 'The Director',
+  },
+  {
+    id: 'director-messages',
+    targetTestId: 'director-panel-header',
+    title: 'Process Messages',
+    description:
+      'Toggle the mail icon to see queued messages. Process them all at once, or click the play button on individual messages. The director reads and responds to each one.',
+    section: 'The Director',
+  },
+
+  // ── Section 5: Collaboration (routes: /messages, /documents, /inbox) ──
+  {
+    id: 'messages-overview',
+    targetTestId: 'messages-page',
+    title: 'Team Messages',
+    description:
+      'Slack-style channels for team communication. Create channels, send messages to agents, and keep conversations organized with threading.',
+    section: 'Collaboration',
+    route: '/messages',
+  },
+  {
+    id: 'documents-overview',
+    targetTestId: 'documents-page',
+    title: 'Document Library',
+    description:
+      'A Notion-like workspace for project knowledge. Organize docs into libraries, drag-and-drop to reorder, and share documentation across the team.',
+    section: 'Collaboration',
+    route: '/documents',
+  },
+  {
+    id: 'inbox-overview',
+    targetTestId: 'inbox-page',
+    title: 'Inbox',
+    description:
+      'Your personal feed of @mentions, direct messages, and agent notifications. Filter, archive, and reply from one place.',
+    section: 'Collaboration',
+    route: '/inbox',
   },
   {
     id: 'notification-bell',
     targetTestId: 'notification-center',
-    title: 'Notification Bell',
+    title: 'Notifications',
     description:
-      'Approval requests and important alerts appear here.',
+      'The bell icon shows real-time alerts: approval requests, agent errors, and important events.',
+    section: 'Collaboration',
     // Conditionally enabled based on 'approve' preset — set at render time
   },
+
+  // ── Section 6: Power Tools (routes: /editor, /workflows, /metrics) ────
   {
-    id: 'director-panel',
-    targetTestId: 'director-panel',
-    title: 'Director Panel',
+    id: 'editor-overview',
+    targetTestId: 'file-editor-page',
+    title: 'Code Editor',
     description:
-      'Chat with the director agent to guide your workspace.',
-    // Conditionally enabled based on director config — set at render time
+      'A full Monaco editor with LSP support. Browse files, edit code with syntax highlighting and completions, and install extensions.',
+    section: 'Power Tools',
+    route: '/editor',
+  },
+  {
+    id: 'workflows-overview',
+    targetTestId: 'workflows-page',
+    title: 'Workflows',
+    description:
+      'Create reusable workflow templates (playbooks) and monitor active workflow execution with dependency tracking and progress visualization.',
+    section: 'Power Tools',
+    route: '/workflows',
+  },
+  {
+    id: 'metrics-overview',
+    targetTestId: 'metrics-page',
+    title: 'Metrics Dashboard',
+    description:
+      'Track task throughput, agent performance, and provider usage over time. Use the time range selector to zoom into trends.',
+    section: 'Power Tools',
+    route: '/metrics',
+  },
+  {
+    id: 'command-palette',
+    targetTestId: 'command-palette-trigger',
+    title: 'Command Palette',
+    description:
+      'Press Cmd+K from anywhere to navigate pages, create tasks, toggle panels, and access every action without touching the mouse.',
+    section: 'Power Tools',
+  },
+
+  // ── Section 7: Settings & Wrap-Up ─────────────────────────────────────
+  {
+    id: 'settings-overview',
+    targetTestId: 'settings-page',
+    title: 'Settings',
+    description:
+      'Customize your theme, notification preferences, default providers, keyboard shortcuts, and workspace configuration. Restart this tour anytime from here.',
+    section: 'Settings & Wrap-Up',
+    route: '/settings',
+  },
+  {
+    id: 'tour-complete',
+    targetTestId: 'activity-page',
+    title: "You're Ready!",
+    description:
+      'You have seen the full power of Stoneforge. Start by opening the Director panel and starting a session -- it will read your backlog and begin orchestrating work. Press Cmd+K anytime to find any feature.',
+    section: 'Settings & Wrap-Up',
+    route: '/activity',
   },
 ];
 
@@ -392,18 +605,33 @@ export function AppShell() {
   const workflowPreset = useWorkflowPreset();
   const { director: directorAgent } = useDirector();
 
-  // Build steps with conditional enablement
+  // Director step IDs that require directorAgent and auto-expand the panel
+  const DIRECTOR_STEP_IDS = new Set([
+    'director-intro',
+    'director-tabs',
+    'director-actions',
+    'director-start',
+    'director-messages',
+  ]);
+
+  // Build steps with conditional enablement and onActivate callbacks
   const tourSteps = useMemo(() => {
     return ONBOARDING_STEPS.map((step) => {
+      // Notification bell — only shown for 'approve' preset
       if (step.id === 'notification-bell') {
         return { ...step, enabled: workflowPreset.preset === 'approve' };
       }
-      if (step.id === 'director-panel') {
-        return { ...step, enabled: !!directorAgent };
+      // Director steps — conditional on director existence, auto-expand panel
+      if (DIRECTOR_STEP_IDS.has(step.id)) {
+        return {
+          ...step,
+          enabled: !!directorAgent,
+          onActivate: () => setDirectorCollapsed(false),
+        };
       }
       return step;
     });
-  }, [workflowPreset.preset, directorAgent]);
+  }, [workflowPreset.preset, directorAgent, setDirectorCollapsed]);
 
   const onboardingTour = useOnboardingTour(tourSteps);
 
@@ -439,29 +667,23 @@ export function AppShell() {
     [tourSteps]
   );
 
+  const [isTourNavigating, setIsTourNavigating] = useState(false);
+
   useEffect(() => {
     if (!onboardingTour.isActive) return;
-    const currentStepData = activeSteps[onboardingTour.currentStep];
-    if (!currentStepData) return;
+    const step = activeSteps[onboardingTour.currentStep];
+    if (!step) return;
 
-    // Uncollapse sidebar when highlighting it
-    if (currentStepData.id === 'sidebar' && desktopCollapsed && !isMobile) {
-      setDesktopCollapsed(false);
+    // Run side effects (e.g., expand director panel)
+    if (step.onActivate) step.onActivate();
+
+    // Navigate to the step's route if we're not already there
+    const currentPath = routerState2.location.pathname;
+    if (step.route && currentPath !== step.route) {
+      setIsTourNavigating(true);
+      router.navigate({ to: step.route }).then(() => setIsTourNavigating(false));
     }
-    // Uncollapse director panel when highlighting it
-    if (currentStepData.id === 'director-panel' && directorCollapsed && !isMobile) {
-      setDirectorCollapsed(false);
-    }
-  }, [
-    onboardingTour.isActive,
-    onboardingTour.currentStep,
-    activeSteps,
-    desktopCollapsed,
-    directorCollapsed,
-    isMobile,
-    setDesktopCollapsed,
-    setDirectorCollapsed,
-  ]);
+  }, [onboardingTour.isActive, onboardingTour.currentStep, activeSteps]);
 
   // Notification system
   const {
@@ -805,6 +1027,7 @@ export function AppShell() {
         onPrev={onboardingTour.prev}
         onSkip={onboardingTour.skip}
         onSkipSection={onboardingTour.skipSection}
+        isNavigating={isTourNavigating}
       />
     </div>
   );
