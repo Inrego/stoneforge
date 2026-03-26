@@ -1,5 +1,12 @@
 # @stoneforge/smithy-web
 
+## 1.20.1
+
+### Patch Changes
+
+- de90f4c: Fix onboarding tour flickering, back-button close, missing overlay, and auto-advance bugs
+  - @stoneforge/ui@1.20.1
+
 ## 1.20.0
 
 ### Minor Changes

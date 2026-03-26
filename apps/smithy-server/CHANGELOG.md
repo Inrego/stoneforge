@@ -1,5 +1,15 @@
 # @stoneforge/smithy-server
 
+## 1.20.1
+
+### Patch Changes
+
+- @stoneforge/core@1.20.1
+- @stoneforge/storage@1.20.1
+- @stoneforge/quarry@1.20.1
+- @stoneforge/smithy@1.20.1
+- @stoneforge/shared-routes@1.20.1
+
 ## 1.20.0
 
 ### Patch Changes
