@@ -8,7 +8,7 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import type { Command, GlobalOptions, CommandResult } from '../types.js';
 import { success, failure, ExitCode } from '../types.js';
 import { createStorage, initializeSchema } from '@stoneforge/storage';
@@ -681,36 +681,93 @@ async function initHandler(
       skillsMessage = `\nWarning: Skills installation failed: ${skillsErrMsg}`;
     }
 
-    const baseMessage = partialInit
-      ? `Initialized Stoneforge workspace from existing files at ${stoneforgeDir}`
-      : `Initialized Stoneforge workspace at ${stoneforgeDir}`;
+    // Build polished, branded output
+    const isTTY = process.stdout.isTTY;
+    const bold = isTTY ? '\x1b[1m' : '';
+    const dim = isTTY ? '\x1b[2m' : '';
+    const green = isTTY ? '\x1b[32m' : '';
+    const cyan = isTTY ? '\x1b[36m' : '';
+    const yellow = isTTY ? '\x1b[33m' : '';
+    const reset = isTTY ? '\x1b[0m' : '';
 
-    const agentsMdMessage = agentsMdCreated
-      ? '\nCreated AGENTS.md at workspace root'
-      : '';
+    const relativePath = relative(workDir, stoneforgeDir) + '/';
+    const agentNames = DEFAULT_AGENTS.map(a => a.name).join(', ');
 
-    let agentsMessage = '';
-    if (agentResult.created > 0) {
-      const providerSuffix = isDemo ? ` (using ${DEMO_MODEL})` : '';
-      agentsMessage = `\nCreated ${agentResult.created} default agent(s): ${DEFAULT_AGENTS.map(a => a.name).join(', ')}${providerSuffix}`;
+    // Concise preset descriptions for the summary display
+    const PRESET_SHORT: Record<WorkflowPreset, string> = {
+      auto: 'Fast iteration, no human review',
+      review: 'You review and merge to main',
+      approve: 'Agents need approval, merges via PRs',
+    };
+
+    const lines: string[] = [];
+
+    // Branding
+    lines.push('');
+    lines.push(`  ${cyan}⛏  Stoneforge${reset}`);
+    lines.push('');
+
+    // Success indicator
+    const initLabel = partialInit ? 'Workspace initialized from existing files' : 'Workspace initialized';
+    lines.push(`  ${green}✔${reset} ${bold}${initLabel}${reset}`);
+    lines.push('');
+
+    // Key-value summary
+    const labelWidth = 11; // "Preset" is longest meaningful label
+    const pad = (label: string) => `  ${dim}${label.padEnd(labelWidth)}${reset}`;
+
+    if (options.name) {
+      lines.push(`${pad('Name')}${options.name}`);
     }
+    if (selectedPreset) {
+      lines.push(`${pad('Preset')}${bold}${selectedPreset}${reset} ${dim}— ${PRESET_SHORT[selectedPreset]}${reset}`);
+    }
+    lines.push(`${pad('Agents')}${agentNames}`);
+    if (skillsInstalled > 0) {
+      lines.push(`${pad('Skills')}${skillsInstalled} installed`);
+    } else if (skillsMessage.includes('skipped')) {
+      lines.push(`${pad('Skills')}already installed`);
+    } else if (skillsMessage.includes('skipped') === false && skillsMessage.includes('failed')) {
+      lines.push(`${pad('Skills')}${yellow}installation failed${reset}`);
+    }
+    if (agentsMdCreated) {
+      lines.push(`${pad('AGENTS.md')}created at workspace root`);
+    }
+    if (importMessage) {
+      lines.push(`${pad('Imported')}${importMessage.replace(/^\n?Imported\s*/, '')}`);
+    }
+    lines.push(`${pad('Path')}${relativePath}`);
+
+    // Warnings for skipped agents
     if (agentResult.skipped > 0) {
-      agentsMessage += `\nSkipped ${agentResult.skipped} existing agent(s)`;
+      lines.push('');
+      lines.push(`  ${dim}${agentResult.skipped} existing agent(s) skipped${reset}`);
     }
 
-    const demoModeNotice = isDemo
-      ? `\n\n🎮 Demo mode is active!\n   All agents are configured to use the free ${DEMO_MODEL} provider.\n   No API keys required. To disable, set demo_mode: false in .stoneforge/config.yaml.`
-      : '';
+    // Skills warnings
+    if (skillsMessage.includes('Warning:')) {
+      const warningText = skillsMessage.replace(/^\n?Warning:\s*/, '');
+      lines.push(`  ${yellow}⚠${reset} ${dim}${warningText}${reset}`);
+    }
 
-    const nameMessage = options.name ? `\nWorkspace name: ${options.name}` : '';
+    // Demo mode notice
+    if (isDemo) {
+      lines.push('');
+      lines.push(`  ${yellow}🎮 Demo mode active${reset}`);
+      lines.push(`  ${dim}All agents use the free ${DEMO_MODEL} provider — no API keys required.${reset}`);
+      lines.push(`  ${dim}Disable with demo_mode: false in .stoneforge/config.yaml${reset}`);
+    }
 
-    const presetMessage = selectedPreset
-      ? `\nWorkflow preset: ${selectedPreset} — ${PRESET_DESCRIPTIONS[selectedPreset]}`
-      : '';
+    // Next steps
+    lines.push('');
+    lines.push(`  ${bold}Next steps:${reset}`);
+    lines.push(`    Run ${cyan}sf serve${reset} to start the dashboard`);
+    lines.push(`    Run ${cyan}sf help${reset}  for available commands`);
+    lines.push('');
 
     return success(
       { path: stoneforgeDir, operatorId: OPERATOR_ENTITY_ID, agentsMdCreated, skillsInstalled, agentsCreated: agentResult.created, demoMode: isDemo, name: options.name, preset: selectedPreset },
-      `${baseMessage}${nameMessage}${presetMessage}\nCreated default operator entity: ${OPERATOR_ENTITY_ID}${agentsMessage}${agentsMdMessage}${importMessage}${skillsMessage}${demoModeNotice}`
+      lines.join('\n')
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

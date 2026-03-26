@@ -106,8 +106,8 @@ describe('initCommand', () => {
 
     it('should return success message', async () => {
       const result = await initCommand.handler([], { ...DEFAULT_GLOBAL_OPTIONS });
-      expect(result.message).toContain('Initialized');
-      expect(result.message).toContain('.stoneforge');
+      expect(result.message).toContain('Workspace initialized');
+      expect(result.message).toContain('.stoneforge/');
     });
 
     it('should return path in data', async () => {
@@ -165,7 +165,7 @@ describe('initCommand', () => {
         name: 'My Workspace',
       });
       expect(result.exitCode).toBe(ExitCode.SUCCESS);
-      expect(result.message).toContain('Workspace name: My Workspace');
+      expect(result.message).toContain('My Workspace');
     });
 
     it('should include name in result data', async () => {
@@ -444,7 +444,6 @@ describe('initCommand', () => {
     it('should mention default agents in success message', async () => {
       const result = await initCommand.handler([], { ...DEFAULT_GLOBAL_OPTIONS });
       expect(result.exitCode).toBe(ExitCode.SUCCESS);
-      expect(result.message).toContain('default agent');
       expect(result.message).toContain('director');
       expect(result.message).toContain('e-worker-1');
       expect(result.message).toContain('e-worker-2');
@@ -606,7 +605,7 @@ describe('initCommand', () => {
         demo: true,
       } as typeof DEFAULT_GLOBAL_OPTIONS);
       expect(result.exitCode).toBe(ExitCode.SUCCESS);
-      expect(result.message).toContain('Demo mode is active');
+      expect(result.message).toContain('Demo mode active');
       expect(result.message).toContain('opencode/minimax-m2.5-free');
     });
 
