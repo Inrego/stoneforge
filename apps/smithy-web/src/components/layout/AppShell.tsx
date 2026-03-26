@@ -14,13 +14,19 @@ import { StopAllAgentsButton } from './StopAllAgentsButton';
 import { ThemeToggle } from '@stoneforge/ui';
 import { NotificationCenter, NotificationSidebar } from '../notification';
 import { CommandPalette, useCommandPalette, QuickFileOpen, useQuickFileOpen, FileContentSearch, useFileContentSearchShortcut } from '../command';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNotifications } from '../../api/hooks/useNotifications';
 import { usePendingApprovalCount, useApprovalRequestWatcher } from '../../api/hooks/useApprovalRequests';
 import { useGlobalKeyboardShortcuts, useOnboardingTour } from '../../hooks';
 import { useIsMobile, useIsTablet } from '@stoneforge/ui';
 import { toast } from 'sonner';
-import { OnboardingTour, type TourStep } from '../onboarding';
+import {
+  OnboardingTour,
+  type TourStep,
+  injectTourMockData,
+  clearTourMockData,
+  hasTourMockData,
+} from '../onboarding';
 import { useWorkflowPreset } from '../../api/hooks/useWorkflowPreset';
 import { useDirector, useChangeAgentProvider } from '../../api/hooks/useAgents';
 import { useProviderCheck } from '../../hooks/useProviderCheck';
@@ -394,11 +400,29 @@ const ONBOARDING_STEPS: TourStep[] = [
     route: '/tasks',
   },
   {
+    id: 'tasks-detail',
+    targetTestId: 'task-detail-panel',
+    title: 'Task Details',
+    description:
+      'Click any task to open its detail panel. View and edit the title, status, priority, assignee, and description. Track dependencies and view the full task history.',
+    section: 'Managing Work',
+    route: '/tasks',
+  },
+  {
     id: 'plans-overview',
     targetTestId: 'plans-page',
     title: 'Plans & Roadmap',
     description:
       'Plans group related tasks into a coordinated effort. Switch to Roadmap view for a timeline visualization.',
+    section: 'Managing Work',
+    route: '/plans',
+  },
+  {
+    id: 'plans-detail',
+    targetTestId: 'plan-detail-panel',
+    title: 'Plan Details',
+    description:
+      'Click a plan to see its tasks, progress, and status. Add or remove tasks, activate draft plans, and track completion across the entire effort.',
     section: 'Managing Work',
     route: '/plans',
   },
@@ -514,11 +538,29 @@ const ONBOARDING_STEPS: TourStep[] = [
     route: '/messages',
   },
   {
+    id: 'messages-channel',
+    targetTestId: 'message-composer',
+    title: 'Send Messages',
+    description:
+      'Select a channel and type a message in the composer. Attach documents, embed tasks, and use threads to keep conversations organized.',
+    section: 'Collaboration',
+    route: '/messages',
+  },
+  {
     id: 'documents-overview',
     targetTestId: 'documents-page',
     title: 'Document Library',
     description:
       'A Notion-like workspace for project knowledge. Organize docs into libraries, drag-and-drop to reorder, and share documentation across the team.',
+    section: 'Collaboration',
+    route: '/documents',
+  },
+  {
+    id: 'documents-detail',
+    targetTestId: 'document-detail-panel',
+    title: 'Edit Documents',
+    description:
+      'Click a document to view and edit it. Write in Markdown, track versions, link related documents, and expand to fullscreen for focused editing.',
     section: 'Collaboration',
     route: '/documents',
   },
@@ -627,6 +669,7 @@ export function AppShell() {
 
   const health = useHealth();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   // Provider installation check — blocks the app if providers are missing
   const providerCheck = useProviderCheck();
@@ -654,15 +697,155 @@ export function AppShell() {
     'director-messages',
   ]);
 
+  // Step IDs that need the director panel collapsed (page demonstration steps)
+  const COLLAPSE_DIRECTOR_STEP_IDS = new Set([
+    'tasks-overview', 'tasks-create', 'tasks-views', 'tasks-detail',
+    'plans-overview', 'plans-detail',
+    'messages-overview', 'messages-channel',
+    'documents-overview', 'documents-detail',
+  ]);
+
   // Build steps with conditional enablement and onActivate callbacks
   const tourSteps = useMemo(() => {
     return ONBOARDING_STEPS.map((step) => {
-      // Agent settings — ensure preferences tab is active on settings page
+      // ── Activity section: inject mock agent data ──────────────────────
+      if (step.id === 'agent-cards') {
+        return {
+          ...step,
+          onActivate: () => {
+            injectTourMockData(queryClient, 'activity');
+          },
+        };
+      }
+
+      // ── Tasks section: inject mock tasks + collapse director ──────────
+      if (step.id === 'tasks-overview') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'tasks');
+          },
+        };
+      }
+      if (step.id === 'tasks-detail') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'tasks');
+            setTimeout(() => {
+              router.navigate({
+                to: '/tasks',
+                search: {
+                  selected: 'tour-mock-task-1',
+                  page: 1,
+                  limit: 20,
+                  status: undefined,
+                  assignee: undefined,
+                  showClosed: undefined,
+                  action: undefined,
+                  backlog: undefined,
+                },
+              });
+            }, 300);
+          },
+        };
+      }
+
+      // ── Plans section: inject mock plans + collapse director ──────────
+      if (step.id === 'plans-overview') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'plans');
+          },
+        };
+      }
+      if (step.id === 'plans-detail') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'plans');
+            setTimeout(() => {
+              router.navigate({
+                to: '/plans',
+                search: { selected: 'tour-mock-plan-1', status: undefined },
+              });
+            }, 300);
+          },
+        };
+      }
+
+      // ── Messages section: inject mock messages + collapse director ────
+      if (step.id === 'messages-overview') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'messages');
+          },
+        };
+      }
+      if (step.id === 'messages-channel') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'messages');
+            setTimeout(() => {
+              router.navigate({
+                to: '/messages',
+                search: { channel: 'tour-mock-channel-1', message: undefined },
+              });
+            }, 300);
+          },
+        };
+      }
+
+      // ── Documents section: inject mock documents + collapse director ──
+      if (step.id === 'documents-overview') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'documents');
+          },
+        };
+      }
+      if (step.id === 'documents-detail') {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+            injectTourMockData(queryClient, 'documents');
+            setTimeout(() => {
+              router.navigate({
+                to: '/documents',
+                search: { selected: 'tour-mock-doc-1', library: undefined },
+              });
+            }, 300);
+          },
+        };
+      }
+
+      // ── Collapse director for remaining page demo steps ───────────────
+      if (COLLAPSE_DIRECTOR_STEP_IDS.has(step.id)) {
+        return {
+          ...step,
+          onActivate: () => {
+            setDirectorCollapsed(true);
+          },
+        };
+      }
+
+      // ── Agent settings: ensure preferences tab is active ──────────────
       if (step.id === 'agents-settings') {
         return {
           ...step,
           onActivate: () => {
-            // Click the preferences tab so the agent defaults section is visible
             const preferencesTab = document.querySelector('[data-testid="settings-tab-preferences"]');
             if (preferencesTab instanceof HTMLElement) {
               preferencesTab.click();
@@ -670,12 +853,12 @@ export function AppShell() {
           },
         };
       }
-      // Workflow presets — navigate to settings workspace tab
+
+      // ── Workflow presets: navigate to settings workspace tab ───────────
       if (step.id === 'workflow-presets') {
         return {
           ...step,
           onActivate: () => {
-            // Click the workspace tab so the workflow preset section is visible
             const workspaceTab = document.querySelector('[data-testid="settings-tab-workspace"]');
             if (workspaceTab instanceof HTMLElement) {
               workspaceTab.click();
@@ -683,21 +866,37 @@ export function AppShell() {
           },
         };
       }
-      // Notification bell — only shown for 'approve' preset
+
+      // ── Notification bell: only shown for 'approve' preset ────────────
       if (step.id === 'notification-bell') {
         return { ...step, enabled: workflowPreset.preset === 'approve' };
       }
-      // Director steps — conditional on director existence + desktop only, auto-expand panel
+
+      // ── Director steps: expand panel, clear mock data ─────────────────
       if (DIRECTOR_STEP_IDS.has(step.id)) {
         return {
           ...step,
           enabled: !!directorAgent && !isMobile,
-          onActivate: () => setDirectorCollapsed(false),
+          onActivate: () => {
+            setDirectorCollapsed(false);
+            clearTourMockData(queryClient);
+          },
         };
       }
+
+      // ── Tour complete: clear all mock data ────────────────────────────
+      if (step.id === 'tour-complete') {
+        return {
+          ...step,
+          onActivate: () => {
+            clearTourMockData(queryClient);
+          },
+        };
+      }
+
       return step;
     });
-  }, [workflowPreset.preset, directorAgent, setDirectorCollapsed, isMobile]);
+  }, [workflowPreset.preset, directorAgent, setDirectorCollapsed, isMobile, queryClient, router]);
 
   const onboardingTour = useOnboardingTour(tourSteps);
 
@@ -749,6 +948,16 @@ export function AppShell() {
     window.addEventListener('restart-onboarding-tour', handleRestart);
     return () => window.removeEventListener('restart-onboarding-tour', handleRestart);
   }, [router]);
+
+  // Clean up mock data when the tour ends (skip, complete, or browser close)
+  useEffect(() => {
+    if (!onboardingTour.isActive && hasTourMockData()) {
+      clearTourMockData(queryClient);
+      // Close any open detail panels by clearing search params
+      const currentPath = routerState2.location.pathname;
+      router.navigate({ to: currentPath, search: () => ({}) });
+    }
+  }, [onboardingTour.isActive]);
 
   // Ensure target elements are visible during the tour
   const activeSteps = useMemo(
