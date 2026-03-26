@@ -1,5 +1,20 @@
 # @stoneforge/quarry
 
+## 1.21.0
+
+### Minor Changes
+
+- a2ef9af: Replace text input with interactive arrow-key selector for workflow preset in `sf init`
+- e36265c: Polish `sf init` output with branded, visually structured display including color, aligned key-value pairs, and next steps guidance
+- d93c864: Polish `sf serve` startup output with clean branded display: concise summary showing dashboard URL, agent count, and daemon status instead of noisy internal logs
+- 00a58d3: Add auto-open browser when `sf serve` starts, with `--no-open` flag to disable
+
+### Patch Changes
+
+- @stoneforge/core@1.21.0
+- @stoneforge/storage@1.21.0
+- @stoneforge/shared-routes@1.21.0
+
 ## 1.20.1
 
 ### Patch Changes

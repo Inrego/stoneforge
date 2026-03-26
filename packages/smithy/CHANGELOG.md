@@ -1,5 +1,22 @@
 # @stoneforge/smithy
 
+## 1.21.0
+
+### Minor Changes
+
+- d93c864: Return agent count and daemon status from `startSmithyServer()` for use in polished startup summary
+
+### Patch Changes
+
+- Updated dependencies [a2ef9af]
+- Updated dependencies [e36265c]
+- Updated dependencies [d93c864]
+- Updated dependencies [00a58d3]
+  - @stoneforge/quarry@1.21.0
+  - @stoneforge/core@1.21.0
+  - @stoneforge/storage@1.21.0
+  - @stoneforge/shared-routes@1.21.0
+
 ## 1.20.1
 
 ### Patch Changes
