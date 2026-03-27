@@ -334,7 +334,7 @@ export function AgentsPage() {
               data-testid="pools-create"
             >
               <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">Create Pool</span>
+              <span className="hidden @sm:inline">Create Pool</span>
             </button>
           ) : (
             <button
@@ -343,8 +343,8 @@ export function AgentsPage() {
               data-testid="agents-create"
             >
               <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">{currentTab === 'stewards' ? 'Create Steward' : 'Create Agent'}</span>
-              <kbd className="hidden sm:inline ml-1 text-xs bg-[var(--color-primary-700)]/50 text-white px-1 py-0.5 rounded">
+              <span className="hidden @sm:inline">{currentTab === 'stewards' ? 'Create Steward' : 'Create Agent'}</span>
+              <kbd className="hidden @sm:inline ml-1 text-xs bg-[var(--color-primary-700)]/50 text-white px-1 py-0.5 rounded">
                 {formatKeyBinding(getCurrentBinding('action.createAgent'))}
               </kbd>
             </button>

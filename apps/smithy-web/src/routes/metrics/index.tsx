@@ -340,7 +340,7 @@ function PlanProgressSection({
 
   if (isLoading) {
     return (
-      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 sm:p-5">
+      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 @sm:p-5">
         <h3 className="text-sm font-semibold text-[var(--color-text)] mb-4">Plan Progress</h3>
         <div className="space-y-3">
           {[1, 2, 3].map(i => (
@@ -356,7 +356,7 @@ function PlanProgressSection({
 
   if (planProgress.length === 0) {
     return (
-      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 sm:p-5">
+      <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 @sm:p-5">
         <h3 className="text-sm font-semibold text-[var(--color-text)] mb-4">Plan Progress</h3>
         <div className="flex flex-col items-center justify-center py-8 text-[var(--color-text-tertiary)]">
           <Target className="w-8 h-8 mb-2 opacity-50" />
@@ -367,7 +367,7 @@ function PlanProgressSection({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 sm:p-5">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 @sm:p-5">
       <h3 className="text-sm font-semibold text-[var(--color-text)] mb-4">Plan Progress</h3>
       <div className="space-y-4">
         {planProgress.map(plan => (
@@ -444,7 +444,7 @@ function MergePipelineCard({
   ];
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 sm:p-5">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 @sm:p-5">
       <h3 className="text-sm font-semibold text-[var(--color-text)] mb-4">Merge Pipeline</h3>
       {isLoading ? (
         <div className="space-y-3 animate-pulse">
@@ -525,7 +525,7 @@ function QueueHealthCard({
   ];
 
   return (
-    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 sm:p-5">
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card-bg)] p-4 @sm:p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-[var(--color-text)]">Queue Health</h3>
         <span className={`text-lg font-bold tabular-nums ${healthColor}`}>{healthScore}%</span>
@@ -942,7 +942,7 @@ export function MetricsPage() {
       {/* Summary Stats Row */}
       {/* ================================================================ */}
       <div
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3"
+        className="grid grid-cols-1 @sm:grid-cols-2 @lg:grid-cols-3 @xl:grid-cols-6 gap-3"
         data-testid="stats-cards"
       >
         <StatCard
@@ -1003,7 +1003,7 @@ export function MetricsPage() {
       <div>
         <SectionHeader title="Activity & Distribution" icon={TrendingUp} />
         <div
-          className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4"
+          className="grid grid-cols-1 @lg:grid-cols-2 @xl:grid-cols-3 gap-4"
           data-testid="charts-grid-activity"
         >
           <TrendLineChart
@@ -1048,7 +1048,7 @@ export function MetricsPage() {
       <div>
         <SectionHeader title="Agent Performance" icon={Zap} />
         <div
-          className="grid grid-cols-1 lg:grid-cols-2 gap-4"
+          className="grid grid-cols-1 @lg:grid-cols-2 gap-4"
           data-testid="charts-grid-agents"
         >
           <HorizontalBarChart
@@ -1085,7 +1085,7 @@ export function MetricsPage() {
       <div>
         <SectionHeader title="Plans & Pipeline" icon={Target} />
         <div
-          className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+          className="grid grid-cols-1 @md:grid-cols-2 @xl:grid-cols-3 gap-4"
           data-testid="charts-grid-health"
         >
           <PlanProgressSection
@@ -1112,7 +1112,7 @@ export function MetricsPage() {
       <div>
         <SectionHeader title="Priority Analysis" icon={AlertTriangle} />
         <div
-          className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4"
+          className="grid grid-cols-1 @lg:grid-cols-2 @xl:grid-cols-3 gap-4"
           data-testid="charts-grid-priority"
         >
           <StatusPieChart
@@ -1136,7 +1136,7 @@ export function MetricsPage() {
 
         {/* Summary cards row */}
         <div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4"
+          className="grid grid-cols-1 @sm:grid-cols-2 @lg:grid-cols-4 gap-3 mb-4"
           data-testid="provider-stats-cards"
         >
           <StatCard
@@ -1175,7 +1175,7 @@ export function MetricsPage() {
 
         {/* Charts row */}
         <div
-          className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4"
+          className="grid grid-cols-1 @lg:grid-cols-2 @xl:grid-cols-3 gap-4"
           data-testid="charts-grid-provider"
         >
           <TrendLineChart
