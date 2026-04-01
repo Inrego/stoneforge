@@ -1255,13 +1255,13 @@ export function AppShell() {
       )}
 
       {/* Main content area - hidden when director panel is maximized */}
-      <div className={`flex flex-col min-w-0 ${directorMaximized && !directorCollapsed ? 'hidden' : 'flex-1'}`}>
+      <div className={`flex flex-col min-w-0 @container ${directorMaximized && !directorCollapsed ? 'hidden' : 'flex-1'}`}>
         {/* Header */}
         <header
           className="h-14 bg-[var(--color-header-bg)] border-b border-[var(--color-header-border)] overflow-x-auto scrollbar-hide"
           data-testid="header"
         >
-          <div className="flex items-center justify-between h-full px-4 md:px-6 min-w-max">
+          <div className="flex items-center justify-between h-full px-4 @md:px-6 min-w-max">
             {/* Mobile: Hamburger menu + centered title + search button */}
             {isMobile && (
               <div className="flex items-center gap-3 flex-1">
@@ -1294,7 +1294,7 @@ export function AppShell() {
               </div>
             )}
 
-            <div className="flex items-center gap-2 md:gap-4 flex-shrink-0">
+            <div className="flex items-center gap-2 @md:gap-4 flex-shrink-0">
               {/* Command palette trigger - hidden on mobile */}
               {!isMobile && (
                 <button
@@ -1304,8 +1304,8 @@ export function AppShell() {
                   data-testid="command-palette-trigger"
                 >
                   <Search className="w-4 h-4 flex-shrink-0" />
-                  <span className="hidden lg:inline">Search...</span>
-                  <kbd className="hidden md:flex items-center gap-0.5 px-1.5 py-0.5 text-xs bg-[var(--color-bg)] border border-[var(--color-border)] rounded">
+                  <span className="hidden @lg:inline">Search...</span>
+                  <kbd className="hidden @md:flex items-center gap-0.5 px-1.5 py-0.5 text-xs bg-[var(--color-bg)] border border-[var(--color-border)] rounded">
                     <Command className="w-3 h-3" />K
                   </kbd>
                 </button>
