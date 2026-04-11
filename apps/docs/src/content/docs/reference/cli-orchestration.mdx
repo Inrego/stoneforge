@@ -54,9 +54,11 @@ sf agent register <name> --role <role> [options]
 | `--trigger <cron>` | Steward cron trigger (e.g., `"0 2 * * *"`) |
 | `--provider <name>` | Agent provider: `claude-code`, `opencode`, `codex` |
 | `--model <model>` | LLM model to use |
+| `--target-branch <branch>` | Target branch for merge (director only, default: auto-detect) |
 
 ```bash
 sf agent register Director --role director
+sf agent register Director --role director --target-branch staging
 sf agent register Worker1 --role worker --mode ephemeral
 sf agent register MergeSteward --role steward --focus merge
 sf agent register Reviewer --role steward --focus custom --trigger "0 */4 * * *"
@@ -145,6 +147,7 @@ sf daemon sleep --duration 3600
 
 | Option | Description |
 | --- | --- |
+| `-s, --server <url>` | Orchestrator server URL (default: `http://localhost:3457`) |
 | `-u, --until <time>` | Sleep until time (e.g., `"3am"`, `"Feb 22 at 9:30am"`) |
 | `-d, --duration <secs>` | Sleep for duration in seconds |
 
