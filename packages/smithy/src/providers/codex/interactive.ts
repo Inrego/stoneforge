@@ -15,14 +15,11 @@ import type {
   InteractiveSpawnOptions,
   ProviderSessionId,
 } from '../types.js';
+import { shellQuote } from '../shell-quote.js';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function shellQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
-}
 
 // ============================================================================
 // Codex Interactive Session

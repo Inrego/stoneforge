@@ -6,14 +6,14 @@
 
 import { describe, it, expect } from 'bun:test';
 import type { InteractiveSpawnOptions } from '../types.js';
+import { posixShellQuote, shellQuote as platformShellQuote } from '../shell-quote.js';
 
 /**
- * Shell-quotes a string for safe inclusion in a bash command.
- * Duplicated from interactive.ts for testing purposes.
+ * For these buildArgs assertions we pin to the POSIX form so expectations are
+ * deterministic regardless of the host OS that runs the test. A separate
+ * suite below exercises the Windows quoter directly.
  */
-function shellQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
-}
+const shellQuote = posixShellQuote;
 
 /**
  * Simulates the buildArgs() method from ClaudeInteractiveProvider.
@@ -121,6 +121,21 @@ describe('ClaudeInteractiveProvider', () => {
       const { ClaudeInteractiveProvider } = await import('./interactive.js');
       const provider = new ClaudeInteractiveProvider('/custom/path/claude');
       expect(provider.name).toBe('claude-interactive');
+    });
+  });
+
+  describe('Windows quoting (issue #51)', () => {
+    it('quotes the executable with double quotes on win32, not single quotes', () => {
+      // Regression guard: on Windows, shellQuote must never wrap the command
+      // in single quotes (cmd.exe treats `'` as a literal character and the
+      // old POSIX quoter produced `''claude''` failures).
+      expect(platformShellQuote('claude', 'win32')).toBe('claude');
+      expect(platformShellQuote('path with space', 'win32')).toBe('"path with space"');
+    });
+
+    it('routes to POSIX form on linux/darwin', () => {
+      expect(platformShellQuote('claude', 'linux')).toBe("'claude'");
+      expect(platformShellQuote('claude', 'darwin')).toBe("'claude'");
     });
   });
 });

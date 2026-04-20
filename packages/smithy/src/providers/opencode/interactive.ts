@@ -16,14 +16,11 @@ import type {
   ProviderSessionId,
 } from '../types.js';
 import { OPENCODE_DEFAULT_MODEL } from './server-manager.js';
+import { shellQuote } from '../shell-quote.js';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function shellQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
-}
 
 // ============================================================================
 // OpenCode Interactive Session

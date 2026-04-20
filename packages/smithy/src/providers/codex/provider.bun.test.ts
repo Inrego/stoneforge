@@ -6,6 +6,7 @@
 
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import type { CodexClient, CodexModelInfo } from './server-manager.js';
+import { posixShellQuote, shellQuote } from '../shell-quote.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers for CodexClient
@@ -203,13 +204,15 @@ describe('CodexHeadlessProvider model passthrough', () => {
 // ---------------------------------------------------------------------------
 
 describe('CodexInteractiveProvider model flag', () => {
-  // Test the buildArgs logic directly
+  // Use the POSIX form directly so assertions are deterministic regardless of
+  // the host OS the tests run on. A separate suite below covers the Windows
+  // quoter.
   function buildArgs(options: {
     resumeSessionId?: string;
     workingDirectory: string;
     model?: string;
   }): string[] {
-    const shellQuote = (s: string) => "'" + s.replace(/'/g, "'\\''") + "'";
+    const shellQuote = posixShellQuote;
     const args: string[] = [];
 
     if (options.resumeSessionId) {
@@ -266,5 +269,26 @@ describe('CodexInteractiveProvider model flag', () => {
 
     expect(args).toContain("--model");
     expect(args).toContain("'model'\\''s-name'");
+  });
+});
+
+describe('CodexInteractiveProvider Windows quoting (issue #51)', () => {
+  it('quotes the executable with double quotes on win32, not single quotes', () => {
+    // Regression guard: on Windows, shellQuote must never wrap the command
+    // in single quotes (cmd.exe treats `'` as a literal character and the
+    // old POSIX quoter produced `''claude''` failures).
+    expect(shellQuote('codex', 'win32')).toBe('codex');
+    expect(shellQuote('path with space', 'win32')).toBe('"path with space"');
+  });
+
+  it('routes to POSIX form on linux/darwin', () => {
+    expect(shellQuote('codex', 'linux')).toBe("'codex'");
+    expect(shellQuote('codex', 'darwin')).toBe("'codex'");
+  });
+
+  it('posixShellQuote stays byte-identical to the legacy helper', () => {
+    // Guard against regressions in Unix quoting while Windows support is added.
+    expect(posixShellQuote('codex')).toBe("'codex'");
+    expect(posixShellQuote("model's-name")).toBe("'model'\\''s-name'");
   });
 });

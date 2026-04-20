@@ -139,6 +139,7 @@ class CodexServerManager {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: config?.cwd,
       env,
+      shell: true, // Required for Windows: resolves codex.cmd/.bat shims via cmd.exe
     });
 
     // Wait for the process to confirm stdio is ready, or fail with a

@@ -17,17 +17,11 @@ import type {
   AgentMessage,
   ProviderSessionId,
 } from '../types.js';
+import { shellQuote } from '../shell-quote.js';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/**
- * Shell-quotes a string for safe inclusion in a bash command.
- */
-function shellQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
-}
 
 // ============================================================================
 // SDK Input Queue
@@ -363,7 +357,7 @@ export class ClaudeHeadlessProvider implements HeadlessProvider {
       const customExecutable = this.executablePath;
       sdkOptions.spawnClaudeCodeProcess = (spawnOpts: SpawnOptions): SpawnedProcess => {
         // Build a shell command string from the custom executable + SDK args
-        const shellCommand = [shellQuote(customExecutable), ...spawnOpts.args.map(shellQuote)].join(' ');
+        const shellCommand = [shellQuote(customExecutable), ...spawnOpts.args.map((a) => shellQuote(a))].join(' ');
 
         const isWindows = process.platform === 'win32';
         const shell = isWindows ? 'cmd.exe' : '/bin/bash';

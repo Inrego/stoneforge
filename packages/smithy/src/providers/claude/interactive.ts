@@ -19,17 +19,11 @@ import type {
   InteractiveSpawnOptions,
   ProviderSessionId,
 } from '../types.js';
+import { shellQuote } from '../shell-quote.js';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/**
- * Shell-quotes a string for safe inclusion in a bash command.
- */
-function shellQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
-}
 
 /**
  * Ensures node-pty's spawn-helper binary has execute permissions.

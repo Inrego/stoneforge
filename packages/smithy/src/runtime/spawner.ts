@@ -31,13 +31,10 @@ import type {
 import { ClaudeAgentProvider } from '../providers/claude/index.js';
 import { isRateLimitMessage, parseRateLimitResetTime } from '../utils/rate-limit-parser.js';
 
-/**
- * Shell-quotes a string for safe inclusion in a bash command.
- * Wraps in single quotes and escapes internal single quotes.
- */
-export function shellQuote(s: string): string {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
-}
+// Re-export the platform-aware shell quoter. Kept as a named re-export from
+// this module so existing `import { shellQuote } from '.../runtime/spawner.js'`
+// callers keep working.
+export { shellQuote } from '../providers/shell-quote.js';
 
 // ============================================================================
 // Types
