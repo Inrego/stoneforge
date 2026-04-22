@@ -5,9 +5,10 @@
  */
 
 import { Hono } from 'hono';
-import type { EntityId, ElementId } from '@stoneforge/core';
+import type { EntityId, ElementId, ProjectId } from '@stoneforge/core';
+import { isValidProjectId } from '@stoneforge/core';
 import type { Services } from '../services.js';
-import type { AgentPoolService, CreatePoolInput, UpdatePoolInput, PoolAgentTypeConfig } from '../../index.js';
+import type { CreatePoolInput, UpdatePoolInput, PoolAgentTypeConfig } from '../../index.js';
 import { isValidPoolAgentTypeConfig } from '../../types/agent-pool.js';
 import { createLogger } from '../../utils/logger.js';
 
@@ -33,11 +34,25 @@ export function createPoolRoutes(services: Services) {
       const enabled = url.searchParams.get('enabled');
       const available = url.searchParams.get('available');
       const tag = url.searchParams.get('tag');
+      const projectParam = url.searchParams.get('project');
+
+      // `project=global` → only global pools; `project=<id>` → that project;
+      // absent → no project filter.
+      let projectFilter: ProjectId | null | undefined;
+      if (projectParam === 'global') {
+        projectFilter = null;
+      } else if (projectParam) {
+        if (!isValidProjectId(projectParam)) {
+          return c.json({ error: { code: 'INVALID_INPUT', message: 'Invalid project id' } }, 400);
+        }
+        projectFilter = projectParam;
+      }
 
       const pools = await poolService.listPools({
         enabled: enabled === 'true' ? true : enabled === 'false' ? false : undefined,
         hasAvailableSlots: available === 'true',
         tags: tag ? [tag] : undefined,
+        ...(projectFilter !== undefined && { projectId: projectFilter }),
       });
 
       return c.json({ pools });
@@ -57,6 +72,7 @@ export function createPoolRoutes(services: Services) {
         agentTypes?: PoolAgentTypeConfig[];
         enabled?: boolean;
         tags?: string[];
+        projectId?: string;
         createdBy?: string;
       };
 
@@ -77,6 +93,10 @@ export function createPoolRoutes(services: Services) {
         }
       }
 
+      if (body.projectId !== undefined && !isValidProjectId(body.projectId)) {
+        return c.json({ error: { code: 'INVALID_INPUT', message: 'Invalid projectId' } }, 400);
+      }
+
       const input: CreatePoolInput = {
         name: body.name,
         description: body.description,
@@ -84,6 +104,7 @@ export function createPoolRoutes(services: Services) {
         agentTypes: body.agentTypes ?? [],
         enabled: body.enabled ?? true,
         tags: body.tags,
+        ...(body.projectId !== undefined && { projectId: body.projectId as ProjectId }),
         createdBy: (body.createdBy ?? 'el-0000') as EntityId,
       };
 

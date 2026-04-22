@@ -15,7 +15,8 @@
  * @module
  */
 
-import type { EntityId, ElementId, Timestamp } from '@stoneforge/core';
+import type { EntityId, ElementId, ProjectId, Timestamp } from '@stoneforge/core';
+import { isValidProjectId } from '@stoneforge/core';
 import type { AgentRole, WorkerMode, StewardFocus } from './agent.js';
 
 // ============================================================================
@@ -80,6 +81,16 @@ export interface AgentPoolConfig {
   readonly enabled?: boolean;
   /** Tags for categorization */
   readonly tags?: string[];
+  /**
+   * Optional project scope for this pool.
+   *
+   * - `undefined` → **global** pool: the workspace-wide concurrency ceiling.
+   *   Global pools are evaluated for every spawn, regardless of the task's
+   *   project, and must always have capacity.
+   * - `ProjectId` → **per-project** pool: layered on top of the global ceiling.
+   *   Only applies when the spawn is for a task whose `projectId` matches.
+   */
+  readonly projectId?: ProjectId;
 }
 
 /**
@@ -130,6 +141,14 @@ export interface AgentPoolFilter {
   readonly tags?: string[];
   /** Filter to pools with available slots */
   readonly hasAvailableSlots?: boolean;
+  /**
+   * Filter by project scope.
+   *
+   * - omitted → no project filter (returns both global and per-project pools)
+   * - `null` → global pools only (pools with no `projectId`)
+   * - `ProjectId` → per-project pools matching that project
+   */
+  readonly projectId?: ProjectId | null;
 }
 
 // ============================================================================
@@ -152,6 +171,12 @@ export interface CreatePoolInput {
   readonly enabled?: boolean;
   /** Tags for categorization */
   readonly tags?: string[];
+  /**
+   * Optional project scope. When set, the pool only governs spawns for tasks
+   * in that project. When omitted, the pool is a global ceiling that applies
+   * to every spawn.
+   */
+  readonly projectId?: ProjectId;
   /** Entity creating the pool */
   readonly createdBy: EntityId;
 }
@@ -206,6 +231,12 @@ export interface PoolSpawnRequest {
   readonly stewardFocus?: StewardFocus;
   /** The agent ID to spawn */
   readonly agentId: EntityId;
+  /**
+   * Project ID of the task the agent will work on, if any.
+   * Used to decide which per-project pool overrides apply. Workspace-level
+   * (projectless) tasks pass `undefined` and are governed only by global pools.
+   */
+  readonly projectId?: ProjectId;
 }
 
 // ============================================================================
@@ -304,6 +335,10 @@ export function isValidPoolConfig(value: unknown): value is AgentPoolConfig {
     for (const agentType of config.agentTypes) {
       if (!isValidPoolAgentTypeConfig(agentType)) return false;
     }
+  }
+
+  if (config.projectId !== undefined && !isValidProjectId(config.projectId)) {
+    return false;
   }
 
   return true;

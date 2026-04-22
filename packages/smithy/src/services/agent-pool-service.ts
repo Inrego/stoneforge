@@ -14,8 +14,8 @@
  * @module
  */
 
-import type { EntityId, ElementId, Entity, Timestamp } from '@stoneforge/core';
-import { createTimestamp, createEntity, EntityTypeValue, asEntityId, asElementId } from '@stoneforge/core';
+import type { EntityId, ElementId, Entity, ProjectId, Timestamp } from '@stoneforge/core';
+import { createTimestamp, createEntity, EntityTypeValue, isValidProjectId } from '@stoneforge/core';
 import type { QuarryAPI } from '@stoneforge/quarry';
 
 import type {
@@ -158,12 +158,16 @@ export interface AgentPoolService {
    * @param role - The agent role
    * @param workerMode - Worker mode (for workers)
    * @param stewardFocus - Steward focus (for stewards)
+   * @param projectId - Task project scope. Global pools (no `projectId`) always
+   *   match; per-project pools match only when their `projectId` equals this
+   *   argument. Pass `undefined` to skip per-project pools entirely.
    * @returns Array of pools containing this agent type
    */
   getPoolsForAgentType(
     role: Exclude<AgentRole, 'director'>,
     workerMode?: WorkerMode,
-    stewardFocus?: StewardFocus
+    stewardFocus?: StewardFocus,
+    projectId?: ProjectId
   ): Promise<AgentPool[]>;
 
   /**
@@ -188,8 +192,11 @@ export interface AgentPoolService {
    * Updates pool status accordingly.
    *
    * @param agentId - The spawned agent ID
+   * @param projectId - Project scope of the task the agent is working on.
+   *   Used to update per-project pool counts. Pass `undefined` for
+   *   workspace-level (projectless) tasks.
    */
-  onAgentSpawned(agentId: EntityId): Promise<void>;
+  onAgentSpawned(agentId: EntityId, projectId?: ProjectId): Promise<void>;
 
   /**
    * Notifies the service that an agent session has ended.
@@ -218,6 +225,13 @@ export class AgentPoolServiceImpl implements AgentPoolService {
    */
   private readonly statusCache: Map<string, AgentPoolStatus> = new Map();
 
+  /**
+   * Tracks which project each active agent is working on, so that per-project
+   * pool counters can be decremented correctly when the session ends. Keyed by
+   * agent ID; value is `undefined` for workspace-level (projectless) tasks.
+   */
+  private readonly agentProjects: Map<string, ProjectId | undefined> = new Map();
+
   constructor(
     api: QuarryAPI,
     sessionManager: SessionManager,
@@ -242,6 +256,10 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       throw new Error(`Invalid pool size: ${input.maxSize}. Must be between 1 and 1000.`);
     }
 
+    if (input.projectId !== undefined && !isValidProjectId(input.projectId)) {
+      throw new Error(`Invalid projectId: ${String(input.projectId)}. Expected el-{3-8 base36 chars}.`);
+    }
+
     // Check for duplicate name
     const existing = await this.getPoolByName(input.name);
     if (existing) {
@@ -256,6 +274,7 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       agentTypes: input.agentTypes ?? [],
       enabled: input.enabled ?? POOL_DEFAULTS.enabled,
       tags: input.tags,
+      ...(input.projectId !== undefined && { projectId: input.projectId }),
     };
 
     // Create pool as a system entity with pool metadata
@@ -353,6 +372,14 @@ export class AgentPoolServiceImpl implements AgentPoolService {
 
       if (filter.hasAvailableSlots) {
         pools = pools.filter((p) => p.status.availableSlots > 0);
+      }
+
+      // projectId: null → global only; ProjectId → that project only.
+      // Leaving the field unset means "no project filter".
+      if (filter.projectId === null) {
+        pools = pools.filter((p) => p.config.projectId === undefined);
+      } else if (filter.projectId !== undefined) {
+        pools = pools.filter((p) => p.config.projectId === filter.projectId);
       }
     }
 
@@ -469,11 +496,13 @@ export class AgentPoolServiceImpl implements AgentPoolService {
   // ----------------------------------------
 
   async canSpawn(request: PoolSpawnRequest): Promise<PoolSpawnCheck> {
-    // Get pools that govern this agent type
+    // Get pools that govern this agent type, scoped to the request's project.
+    // Returned in a deterministic order: global pools first, then per-project.
     const pools = await this.getPoolsForAgentType(
       request.role,
       request.workerMode,
-      request.stewardFocus
+      request.stewardFocus,
+      request.projectId
     );
 
     // If no pools govern this agent type, spawn is allowed
@@ -481,9 +510,17 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       return { canSpawn: true };
     }
 
-    // Check each pool for capacity
-    // Agent can only spawn if ALL governing pools have capacity
-    for (const pool of pools) {
+    // Enforce the global ceiling first, then any per-project override.
+    // The sort below preserves getPoolsForAgentType's global-before-project
+    // ordering while guaranteeing it even if a future refactor shuffles the
+    // list. Agent can only spawn if ALL governing pools have capacity.
+    const orderedPools = [...pools].sort((a, b) => {
+      const aGlobal = a.config.projectId === undefined ? 0 : 1;
+      const bGlobal = b.config.projectId === undefined ? 0 : 1;
+      return aGlobal - bGlobal;
+    });
+
+    for (const pool of orderedPools) {
       if (!pool.config.enabled) {
         continue; // Skip disabled pools
       }
@@ -491,11 +528,12 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       const status = await this.getPoolStatus(pool.id);
 
       if (status.availableSlots <= 0) {
+        const scope = pool.config.projectId === undefined ? 'global' : `project ${pool.config.projectId}`;
         return {
           canSpawn: false,
           poolId: pool.id,
           poolName: pool.config.name,
-          reason: `Pool '${pool.config.name}' is at capacity (${pool.config.maxSize} agents)`,
+          reason: `Pool '${pool.config.name}' (${scope}) is at capacity (${pool.config.maxSize} agents)`,
           slotsAfterSpawn: status.activeCount + 1,
           maxSlots: pool.config.maxSize,
         };
@@ -520,8 +558,9 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       }
     }
 
-    // All pools have capacity
-    const primaryPool = pools[0];
+    // All pools have capacity. Report against the tightest scope — the
+    // per-project pool if one governs this spawn, else the global pool.
+    const primaryPool = orderedPools[orderedPools.length - 1];
     const primaryStatus = await this.getPoolStatus(primaryPool.id);
 
     return {
@@ -536,45 +575,58 @@ export class AgentPoolServiceImpl implements AgentPoolService {
   async getPoolsForAgentType(
     role: Exclude<AgentRole, 'director'>,
     workerMode?: WorkerMode,
-    stewardFocus?: StewardFocus
+    stewardFocus?: StewardFocus,
+    projectId?: ProjectId
   ): Promise<AgentPool[]> {
     const allPools = await this.listPools({ enabled: true });
-    const matchingPools: AgentPool[] = [];
+    const globalPools: AgentPool[] = [];
+    const projectPools: AgentPool[] = [];
 
     for (const pool of allPools) {
-      // If pool has no agentTypes configured, it governs all agents
-      if (pool.config.agentTypes.length === 0) {
-        matchingPools.push(pool);
-        continue;
+      // Scope filter: global pool (no projectId) always matches; per-project
+      // pool matches only when its projectId equals the request's projectId.
+      // A per-project pool is silently skipped when the request has no
+      // project scope — these pools only apply to their own project's tasks.
+      if (pool.config.projectId !== undefined) {
+        if (projectId === undefined || pool.config.projectId !== projectId) {
+          continue;
+        }
       }
 
-      // Check if any agent type config matches
-      const matches = pool.config.agentTypes.some((typeConfig) => {
-        if (typeConfig.role !== role) return false;
+      // If pool has no agentTypes configured, it governs all agents
+      const agentTypeMatches = pool.config.agentTypes.length === 0
+        || pool.config.agentTypes.some((typeConfig) => {
+          if (typeConfig.role !== role) return false;
 
-        if (role === 'worker') {
-          // If workerMode is specified in config, it must match
-          if (typeConfig.workerMode !== undefined && typeConfig.workerMode !== workerMode) {
-            return false;
+          if (role === 'worker') {
+            // If workerMode is specified in config, it must match
+            if (typeConfig.workerMode !== undefined && typeConfig.workerMode !== workerMode) {
+              return false;
+            }
           }
-        }
 
-        if (role === 'steward') {
-          // If stewardFocus is specified in config, it must match
-          if (typeConfig.stewardFocus !== undefined && typeConfig.stewardFocus !== stewardFocus) {
-            return false;
+          if (role === 'steward') {
+            // If stewardFocus is specified in config, it must match
+            if (typeConfig.stewardFocus !== undefined && typeConfig.stewardFocus !== stewardFocus) {
+              return false;
+            }
           }
-        }
 
-        return true;
-      });
+          return true;
+        });
 
-      if (matches) {
-        matchingPools.push(pool);
+      if (!agentTypeMatches) continue;
+
+      if (pool.config.projectId === undefined) {
+        globalPools.push(pool);
+      } else {
+        projectPools.push(pool);
       }
     }
 
-    return matchingPools;
+    // Global ceiling first, per-project overrides second. Callers (notably
+    // canSpawn) rely on this ordering to report the most specific failure.
+    return [...globalPools, ...projectPools];
   }
 
   async getNextSpawnPriority(
@@ -622,7 +674,7 @@ export class AgentPoolServiceImpl implements AgentPoolService {
   // Agent Tracking
   // ----------------------------------------
 
-  async onAgentSpawned(agentId: EntityId): Promise<void> {
+  async onAgentSpawned(agentId: EntityId, projectId?: ProjectId): Promise<void> {
     // Get agent details
     const agent = await this.agentRegistry.getAgent(agentId);
     if (!agent) {
@@ -639,11 +691,17 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       return;
     }
 
-    // Get pools governing this agent
+    // Remember the task's project so onAgentSessionEnded can decrement the
+    // same set of pools even if the task has been reassigned or cleared by
+    // the time the session ends.
+    this.agentProjects.set(agentId as string, projectId);
+
+    // Get pools governing this agent (global + per-project matching projectId)
     const pools = await this.getPoolsForAgentType(
       meta.agentRole as Exclude<AgentRole, 'director'>,
       (meta as { workerMode?: WorkerMode }).workerMode,
-      (meta as { stewardFocus?: StewardFocus }).stewardFocus
+      (meta as { stewardFocus?: StewardFocus }).stewardFocus,
+      projectId
     );
 
     // Update status for each pool
@@ -667,6 +725,11 @@ export class AgentPoolServiceImpl implements AgentPoolService {
   }
 
   async onAgentSessionEnded(agentId: EntityId): Promise<void> {
+    // Pull the project the agent was spawned for, so we decrement the same
+    // per-project pools that were incremented on spawn.
+    const spawnProjectId = this.agentProjects.get(agentId as string);
+    this.agentProjects.delete(agentId as string);
+
     // Get agent details
     const agent = await this.agentRegistry.getAgent(agentId);
     if (!agent) {
@@ -692,11 +755,13 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       return;
     }
 
-    // Get pools governing this agent
+    // Get pools governing this agent, scoped to the project we tracked on
+    // spawn so per-project pool counts stay balanced.
     const pools = await this.getPoolsForAgentType(
       meta.agentRole as Exclude<AgentRole, 'director'>,
       (meta as { workerMode?: WorkerMode }).workerMode,
-      (meta as { stewardFocus?: StewardFocus }).stewardFocus
+      (meta as { stewardFocus?: StewardFocus }).stewardFocus,
+      spawnProjectId
     );
 
     // Update status for each pool
@@ -771,6 +836,23 @@ export class AgentPoolServiceImpl implements AgentPoolService {
       // Check if this agent type is governed by this pool
       const isGoverned = this.isAgentGovernedByPool(agent, config);
       if (!isGoverned) continue;
+
+      // Project scope: per-project pools only count sessions whose tracked
+      // projectId matches. We rely on the agentProjects map populated by
+      // onAgentSpawned; if the agent was never tracked (e.g., spawned before
+      // the pool service started), fall back to the agent's projectFilter
+      // when it pins the agent to exactly one project.
+      if (config.projectId !== undefined) {
+        const trackedProject = this.agentProjects.get(session.agentId as string);
+        if (trackedProject !== undefined) {
+          if (trackedProject !== config.projectId) continue;
+        } else {
+          const filter = (meta as { projectFilter?: ReadonlyArray<ProjectId> }).projectFilter;
+          if (!filter || filter.length !== 1 || filter[0] !== config.projectId) {
+            continue;
+          }
+        }
+      }
 
       // Track this agent
       activeAgentIds.push(session.agentId);

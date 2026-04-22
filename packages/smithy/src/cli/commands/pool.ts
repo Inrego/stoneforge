@@ -12,7 +12,8 @@
 
 import type { Command, GlobalOptions, CommandResult, CommandOption } from '@stoneforge/quarry/cli';
 import { success, failure, ExitCode, getFormatter, getOutputMode, OPERATOR_ENTITY_ID } from '@stoneforge/quarry/cli';
-import type { EntityId, ElementId } from '@stoneforge/core';
+import type { EntityId, ElementId, ProjectId } from '@stoneforge/core';
+import { isValidProjectId } from '@stoneforge/core';
 import type { AgentPool, CreatePoolInput, UpdatePoolInput, PoolAgentTypeConfig, AgentRole, WorkerMode, StewardFocus } from '../../types/index.js';
 
 // ============================================================================
@@ -164,6 +165,7 @@ interface PoolListOptions {
   enabled?: boolean;
   available?: boolean;
   tag?: string;
+  project?: string;
 }
 
 const poolListOptions: CommandOption[] = [
@@ -183,6 +185,12 @@ const poolListOptions: CommandOption[] = [
     description: 'Filter by tag',
     hasValue: true,
   },
+  {
+    name: 'project',
+    short: 'p',
+    description: 'Filter by project scope: "global" for global pools, or a project id',
+    hasValue: true,
+  },
 ];
 
 async function poolListHandler(
@@ -195,10 +203,21 @@ async function poolListHandler(
   }
 
   try {
+    let projectFilter: ProjectId | null | undefined;
+    if (options.project === 'global') {
+      projectFilter = null;
+    } else if (options.project) {
+      if (!isValidProjectId(options.project)) {
+        return failure(`Invalid project id: ${options.project}`, ExitCode.VALIDATION);
+      }
+      projectFilter = options.project;
+    }
+
     const pools = await poolService.listPools({
       enabled: options.enabled,
       hasAvailableSlots: options.available,
       tags: options.tag ? [options.tag] : undefined,
+      ...(projectFilter !== undefined && { projectId: projectFilter }),
     });
 
     const mode = getOutputMode(options);
@@ -216,10 +235,11 @@ async function poolListHandler(
       return success(null, 'No agent pools found');
     }
 
-    const headers = ['ID', 'NAME', 'SIZE', 'ACTIVE', 'AVAILABLE', 'ENABLED'];
+    const headers = ['ID', 'NAME', 'SCOPE', 'SIZE', 'ACTIVE', 'AVAILABLE', 'ENABLED'];
     const rows = pools.map((pool) => [
       pool.id,
       pool.config.name,
+      pool.config.projectId ?? 'global',
       String(pool.config.maxSize),
       String(pool.status.activeCount),
       String(pool.status.availableSlots),
@@ -241,15 +261,18 @@ export const poolListCommand: Command = {
   help: `List all agent pools.
 
 Options:
-  -e, --enabled     Only show enabled pools
-  -a, --available   Only show pools with available slots
-  -t, --tag <tag>   Filter by tag
+  -e, --enabled           Only show enabled pools
+  -a, --available         Only show pools with available slots
+  -t, --tag <tag>         Filter by tag
+  -p, --project <scope>   Filter by project scope: "global" or a project id
 
 Examples:
   sf pool list
   sf pool list --enabled
   sf pool list --available
-  sf pool list --tag production`,
+  sf pool list --tag production
+  sf pool list --project global
+  sf pool list --project el-abc123`,
   options: poolListOptions,
   handler: poolListHandler as Command['handler'],
 };
@@ -301,6 +324,7 @@ async function poolShowHandler(
       `ID:          ${pool.id}`,
       `Name:        ${pool.config.name}`,
       `Description: ${pool.config.description ?? '-'}`,
+      `Scope:       ${pool.config.projectId ?? 'global'}`,
       `Max Size:    ${pool.config.maxSize}`,
       `Enabled:     ${pool.config.enabled ? 'yes' : 'no'}`,
       `Created:     ${pool.createdAt}`,
@@ -362,6 +386,7 @@ interface PoolCreateOptions {
   agentType?: string | string[];
   tags?: string;
   disabled?: boolean;
+  project?: string;
 }
 
 const poolCreateOptions: CommandOption[] = [
@@ -391,6 +416,12 @@ const poolCreateOptions: CommandOption[] = [
   {
     name: 'disabled',
     description: 'Create pool in disabled state',
+  },
+  {
+    name: 'project',
+    short: 'p',
+    description: 'Scope pool to a project id (omit for global pool)',
+    hasValue: true,
   },
 ];
 
@@ -435,6 +466,14 @@ async function poolCreateHandler(
       agentTypes.push(typeConfig);
     }
 
+    let projectId: ProjectId | undefined;
+    if (options.project !== undefined) {
+      if (!isValidProjectId(options.project)) {
+        return failure(`Invalid project id: ${options.project}`, ExitCode.VALIDATION);
+      }
+      projectId = options.project;
+    }
+
     const input: CreatePoolInput = {
       name,
       description: options.description,
@@ -442,6 +481,7 @@ async function poolCreateHandler(
       agentTypes,
       enabled: !options.disabled,
       tags: options.tags ? options.tags.split(',').map((t) => t.trim()) : undefined,
+      ...(projectId !== undefined && { projectId }),
       createdBy: (options.actor ?? OPERATOR_ENTITY_ID) as EntityId,
     };
 
@@ -480,6 +520,7 @@ Options:
                               Format: role[:mode|focus][:priority][:maxSlots][:provider][:model]
   --tags <tags>               Comma-separated tags
   --disabled                  Create pool in disabled state
+  -p, --project <id>          Scope pool to a project id (omit for global pool)
 
 Agent Type Format Examples:
   worker                                                All workers with default settings

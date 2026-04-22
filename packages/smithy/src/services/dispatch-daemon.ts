@@ -2746,6 +2746,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
           role: 'worker',
           workerMode: workerMeta.workerMode,
           agentId: workerId,
+          ...(task.projectId !== undefined && { projectId: task.projectId }),
         };
 
         const poolCheck = await this.poolService.canSpawn(spawnRequest);
@@ -2918,7 +2919,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
 
     // Notify pool service that agent was spawned
     if (this.poolService) {
-      await this.poolService.onAgentSpawned(workerId);
+      await this.poolService.onAgentSpawned(workerId, task.projectId);
     }
 
     this.emitter.emit('agent:spawned', workerId, worktreePath);
@@ -3253,6 +3254,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
         role: 'steward',
         stewardFocus: meta.stewardFocus,
         agentId: stewardId,
+        ...(task.projectId !== undefined && { projectId: task.projectId }),
       };
 
       const poolCheck = await this.poolService.canSpawn(spawnRequest);
@@ -3389,7 +3391,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
 
     // Notify pool service that agent was spawned
     if (this.poolService) {
-      await this.poolService.onAgentSpawned(stewardId);
+      await this.poolService.onAgentSpawned(stewardId, task.projectId);
     }
 
     this.emitter.emit('agent:spawned', stewardId, worktreePath);
@@ -3494,6 +3496,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
         role: 'steward',
         stewardFocus: stewardMeta.stewardFocus,
         agentId: stewardId,
+        ...(task.projectId !== undefined && { projectId: task.projectId }),
       };
 
       const poolCheck = await this.poolService.canSpawn(spawnRequest);
@@ -3625,7 +3628,7 @@ export class DispatchDaemonImpl implements DispatchDaemon {
     }
 
     if (this.poolService) {
-      await this.poolService.onAgentSpawned(stewardId);
+      await this.poolService.onAgentSpawned(stewardId, task.projectId);
     }
 
     this.emitter.emit('agent:spawned', stewardId, worktreePath);
