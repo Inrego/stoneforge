@@ -360,6 +360,133 @@ describe('DispatchDaemon Integration', () => {
     });
   });
 
+  describe('pollWorkerAvailability — projectFilter', () => {
+    // Helpers: set a task's projectId and register a project-scoped worker.
+    async function createTaskInProject(title: string, projectId: string): Promise<Task> {
+      const task = await createTask({
+        title,
+        createdBy: systemEntity,
+        status: TaskStatus.OPEN,
+      });
+      const saved = await api.create(task as unknown as Record<string, unknown> & { createdBy: EntityId }) as Task;
+      await api.update(saved.id, { projectId: projectId as unknown as Task['projectId'] } as Partial<Task>);
+      const reloaded = await api.get<Task>(saved.id);
+      return reloaded as Task;
+    }
+
+    async function createScopedWorker(name: string, projectFilter: string[]): Promise<AgentEntity> {
+      return agentRegistry.registerWorker({
+        name,
+        workerMode: 'ephemeral',
+        createdBy: systemEntity,
+        maxConcurrentTasks: 1,
+        projectFilter: projectFilter as unknown as import('@stoneforge/core').ProjectId[],
+      });
+    }
+
+    test('global worker (no filter) picks up project-scoped tasks', async () => {
+      const worker = await createTestWorker('global-worker');
+      const task = await createTaskInProject('Task in project A', 'el-proja');
+
+      const result = await daemon.pollWorkerAvailability();
+
+      expect(result.processed).toBe(1);
+      const updated = await api.get<Task>(task.id);
+      expect(updated?.assignee as unknown as string).toBe(worker.id as unknown as string);
+    });
+
+    test('scoped worker only picks up tasks from its projects', async () => {
+      const worker = await createScopedWorker('project-a-worker', ['el-proja']);
+      const matchingTask = await createTaskInProject('Matching task', 'el-proja');
+      const otherTask = await createTaskInProject('Non-matching task', 'el-projb');
+
+      const result = await daemon.pollWorkerAvailability();
+
+      expect(result.processed).toBe(1);
+      const matchingUpdated = await api.get<Task>(matchingTask.id);
+      const otherUpdated = await api.get<Task>(otherTask.id);
+      expect(matchingUpdated?.assignee as unknown as string).toBe(worker.id as unknown as string);
+      expect(otherUpdated?.assignee).toBeUndefined();
+    });
+
+    test('scoped worker skips polling when no matching task exists', async () => {
+      await createScopedWorker('project-a-worker', ['el-proja']);
+      const task = await createTaskInProject('Task in project B', 'el-projb');
+
+      const result = await daemon.pollWorkerAvailability();
+
+      expect(result.processed).toBe(0);
+      const updated = await api.get<Task>(task.id);
+      expect(updated?.assignee).toBeUndefined();
+    });
+
+    test('scoped worker with multiple projects matches any listed project', async () => {
+      const worker = await createScopedWorker('multi-proj-worker', ['el-proja', 'el-projb']);
+      const task = await createTaskInProject('Task in project B', 'el-projb');
+
+      const result = await daemon.pollWorkerAvailability();
+
+      expect(result.processed).toBe(1);
+      const updated = await api.get<Task>(task.id);
+      expect(updated?.assignee as unknown as string).toBe(worker.id as unknown as string);
+    });
+
+    test('scoped worker skips tasks without a projectId (workspace-scoped)', async () => {
+      await createScopedWorker('scoped-worker', ['el-proja']);
+      const task = await createTestTask('Legacy task with no project');
+
+      const result = await daemon.pollWorkerAvailability();
+
+      expect(result.processed).toBe(0);
+      const updated = await api.get<Task>(task.id);
+      expect(updated?.assignee).toBeUndefined();
+    });
+
+    test('dispatch picks highest priority matching task even when higher-priority non-matching tasks exist', async () => {
+      const worker = await createScopedWorker('project-a-worker', ['el-proja']);
+
+      // Create a high-priority task in a project the worker does NOT cover
+      const { createTask: createTaskFn } = await import('@stoneforge/core');
+      const highOtherTask = await createTaskFn({
+        title: 'High-priority task in other project',
+        createdBy: systemEntity,
+        status: TaskStatus.OPEN,
+        priority: Priority.CRITICAL,
+      });
+      const savedHighOther = await api.create(highOtherTask as unknown as Record<string, unknown> & { createdBy: EntityId }) as Task;
+      await api.update(savedHighOther.id, { projectId: 'el-projb' as unknown as Task['projectId'] } as Partial<Task>);
+
+      // Create a low-priority task in the worker's project
+      const lowMatchingTask = await createTaskFn({
+        title: 'Low-priority matching task',
+        createdBy: systemEntity,
+        status: TaskStatus.OPEN,
+        priority: Priority.LOW,
+      });
+      const savedLowMatching = await api.create(lowMatchingTask as unknown as Record<string, unknown> & { createdBy: EntityId }) as Task;
+      await api.update(savedLowMatching.id, { projectId: 'el-proja' as unknown as Task['projectId'] } as Partial<Task>);
+
+      const result = await daemon.pollWorkerAvailability();
+
+      expect(result.processed).toBe(1);
+      const matchingUpdated = await api.get<Task>(savedLowMatching.id);
+      const otherUpdated = await api.get<Task>(savedHighOther.id);
+      expect(matchingUpdated?.assignee as unknown as string).toBe(worker.id as unknown as string);
+      expect(otherUpdated?.assignee).toBeUndefined();
+    });
+
+    test('empty projectFilter array is treated as global', async () => {
+      const worker = await createScopedWorker('empty-filter-worker', []);
+      const task = await createTaskInProject('Any project task', 'el-projz');
+
+      const result = await daemon.pollWorkerAvailability();
+
+      expect(result.processed).toBe(1);
+      const updated = await api.get<Task>(task.id);
+      expect(updated?.assignee as unknown as string).toBe(worker.id as unknown as string);
+    });
+  });
+
   describe('daemon lifecycle', () => {
     test('starts and stops cleanly', async () => {
       expect(daemon.isRunning()).toBe(false);

@@ -312,6 +312,7 @@ export class AgentRegistryImpl implements AgentRegistry {
       executablePath: input.executablePath,
       targetBranch: input.targetBranch,
       projectId: input.projectId,
+      projectFilter: input.projectFilter,
     };
 
     const entity = await createEntity({
@@ -344,6 +345,7 @@ export class AgentRegistryImpl implements AgentRegistry {
       provider: input.provider,
       model: input.model,
       executablePath: input.executablePath,
+      projectFilter: input.projectFilter,
     };
 
     const entity = await createEntity({
@@ -380,6 +382,7 @@ export class AgentRegistryImpl implements AgentRegistry {
       provider: input.provider,
       model: input.model,
       executablePath: input.executablePath,
+      projectFilter: input.projectFilter,
     };
 
     const entity = await createEntity({

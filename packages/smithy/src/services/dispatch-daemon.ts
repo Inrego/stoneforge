@@ -54,6 +54,7 @@ import type { SettingsService } from './settings-service.js';
 import type { RateLimitTracker } from './rate-limit-tracker.js';
 import { createRateLimitTracker } from './rate-limit-tracker.js';
 import type { WorkerMetadata, StewardMetadata, StewardFocus } from '../types/agent.js';
+import { agentMatchesProject } from '../types/agent.js';
 import type { PoolSpawnRequest } from '../types/agent-pool.js';
 import {
   getOrchestratorTaskMeta,
@@ -1125,7 +1126,15 @@ export class DispatchDaemonImpl implements DispatchDaemon {
       for (const steward of mergeStewards) {
         if (sortedReviewTasks.length === 0) break;
 
-        const taskAssignment = sortedReviewTasks.shift();
+        // Respect steward's projectFilter — scoped stewards only claim tasks
+        // from their assigned projects.
+        const stewardMeta = getAgentMetadata(steward);
+        const matchIndex = sortedReviewTasks.findIndex((ta) =>
+          agentMatchesProject(stewardMeta, ta.task.projectId)
+        );
+        if (matchIndex === -1) continue;
+
+        const [taskAssignment] = sortedReviewTasks.splice(matchIndex, 1);
         if (!taskAssignment) continue;
 
         try {
@@ -1153,12 +1162,14 @@ export class DispatchDaemonImpl implements DispatchDaemon {
             taskStatus: [TaskStatus.OPEN, TaskStatus.IN_PROGRESS],
           });
 
-          // Filter tasks that match this steward's focus
+          // Filter tasks that match this steward's focus AND project scope
           const matchingTasks = unassignedTasks.filter((task) => {
             const tags = task.tags ?? [];
-            return tags.includes(focusTag) ||
+            const focusMatch = tags.includes(focusTag) ||
               tags.includes(`steward-${focusTag}`) ||
               tags.includes('workflow');
+            if (!focusMatch) return false;
+            return agentMatchesProject(meta, task.projectId);
           });
 
           if (matchingTasks.length > 0) {
@@ -2708,13 +2719,21 @@ export class DispatchDaemonImpl implements DispatchDaemon {
     // Get ready tasks (already filtered for blocked, draft plans, future-scheduled, etc.)
     // and sorted by effective priority via api.ready()
     const readyTasks = await this.api.ready({ includeEphemeral: true });
-    const unassignedTasks = readyTasks.filter((t) => !t.assignee);
+
+    // Filter by projectFilter: workers with a non-empty filter only pick up
+    // tasks from those projects; workers without a filter are global.
+    // Preserves priority order from api.ready() so the highest-priority
+    // matching task is selected.
+    const workerMeta = getAgentMetadata(worker);
+    const unassignedTasks = readyTasks.filter(
+      (t) => !t.assignee && agentMatchesProject(workerMeta, t.projectId)
+    );
 
     if (unassignedTasks.length === 0) {
       return false;
     }
 
-    // ready() already sorts by effective priority, take the first
+    // ready() already sorts by effective priority, take the first match
     const task = unassignedTasks[0];
     const workerId = asEntityId(worker.id);
 

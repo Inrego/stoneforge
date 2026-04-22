@@ -55,6 +55,7 @@ sf agent register <name> --role <role> [options]
 | `--provider <name>` | Agent provider: `claude-code`, `opencode`, `codex` |
 | `--model <model>` | LLM model to use |
 | `--target-branch <branch>` | Target branch for merge (director only, default: auto-detect) |
+| `--projectFilter <ids>` | Comma-separated project IDs this agent is scoped to (default: global) |
 
 ```bash
 sf agent register Director --role director
@@ -62,7 +63,14 @@ sf agent register Director --role director --target-branch staging
 sf agent register Worker1 --role worker --mode ephemeral
 sf agent register MergeSteward --role steward --focus merge
 sf agent register Reviewer --role steward --focus custom --trigger "0 */4 * * *"
+sf agent register FrontendWorker --role worker --projectFilter el-abc123
+sf agent register MultiProjWorker --role worker --projectFilter el-abc123,el-def456
 ```
+
+When `--projectFilter` is set, the dispatch daemon only routes tasks from the
+listed projects to this agent. Agents without a filter are **global** and
+match tasks from any project (including workspace-scoped tasks that have no
+`projectId`). Workspace-scoped tasks are never routed to filtered agents.
 
 #### `sf agent start`
 

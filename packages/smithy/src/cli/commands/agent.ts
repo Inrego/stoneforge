@@ -12,7 +12,8 @@
 
 import type { Command, GlobalOptions, CommandResult, CommandOption } from '@stoneforge/quarry/cli';
 import { success, failure, ExitCode, getFormatter, getOutputMode, OPERATOR_ENTITY_ID } from '@stoneforge/quarry/cli';
-import type { EntityId, ElementId } from '@stoneforge/core';
+import type { EntityId, ElementId, ProjectId } from '@stoneforge/core';
+import { isValidProjectId } from '@stoneforge/core';
 import type { AgentRole, WorkerMode, StewardFocus } from '../../types/index.js';
 import type { OrchestratorAPI, AgentEntity } from '../../api/index.js';
 
@@ -410,6 +411,7 @@ interface AgentRegisterOptions {
   model?: string;
   targetBranch?: string;
   project?: string;
+  projectFilter?: string;
 }
 
 const agentRegisterOptions: CommandOption[] = [
@@ -479,6 +481,11 @@ const agentRegisterOptions: CommandOption[] = [
     description: 'Project ID to scope the agent to (required for directors)',
     hasValue: true,
   },
+  {
+    name: 'projectFilter',
+    description: 'Comma-separated list of project IDs this agent is scoped to (default: global)',
+    hasValue: true,
+  },
 ];
 
 async function agentRegisterHandler(
@@ -516,6 +523,25 @@ async function agentRegisterHandler(
     const reportsTo = options.reportsTo as EntityId | undefined;
     const roleDefinitionRef = options.roleDef as ElementId | undefined;
 
+    // Parse --projectFilter: comma-separated project IDs (empty/undefined = global).
+    // Validate each entry up front so bad input surfaces as a clear CLI error
+    // rather than a cryptic failure deep inside the registry.
+    let projectFilter: ProjectId[] | undefined;
+    if (options.projectFilter) {
+      const entries = options.projectFilter
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      const invalid = entries.filter((e) => !isValidProjectId(e));
+      if (invalid.length > 0) {
+        return failure(
+          `Invalid project ID(s) in --projectFilter: ${invalid.join(', ')}. Expected format: el-{3-8 base36 chars}`,
+          ExitCode.VALIDATION
+        );
+      }
+      projectFilter = entries as ProjectId[];
+    }
+
     let agent: AgentEntity;
 
     switch (options.role as AgentRole) {
@@ -536,6 +562,7 @@ async function agentRegisterHandler(
           provider: options.provider,
           model: options.model,
           targetBranch: options.targetBranch,
+          projectFilter,
         });
         break;
       }
@@ -559,6 +586,7 @@ async function agentRegisterHandler(
           roleDefinitionRef,
           provider: options.provider,
           model: options.model,
+          projectFilter,
         });
         break;
       }
@@ -588,6 +616,7 @@ async function agentRegisterHandler(
           roleDefinitionRef,
           provider: options.provider,
           model: options.model,
+          projectFilter,
         });
         break;
       }
@@ -634,7 +663,8 @@ Options:
   --provider <name>       Agent provider (e.g., claude-code, opencode)
   --model <model>         LLM model to use (e.g., claude-sonnet-4-5-20250929)
   --target-branch <branch> Target branch for merge (director only, default: auto-detect)
-  -p, --project <id>      Project ID (required for directors; see 'sf project list')
+  -p, --project <id>       Project ID (required for directors; see 'sf project list')
+  --projectFilter <ids>    Comma-separated project IDs this agent is scoped to (default: global)
 
 Examples:
   sf agent register MyWorker --role worker --mode ephemeral
@@ -645,7 +675,9 @@ Examples:
   sf agent register TeamWorker --role worker --reportsTo el-director123
   sf agent register DocsSteward --role steward --focus docs --trigger "0 9 * * *"
   sf agent register OcWorker --role worker --provider opencode
-  sf agent register MyWorker --role worker --model claude-sonnet-4-5-20250929`,
+  sf agent register MyWorker --role worker --model claude-sonnet-4-5-20250929
+  sf agent register FrontendWorker --role worker --projectFilter el-abc123
+  sf agent register MultiProjWorker --role worker --projectFilter el-abc123,el-def456`,
   options: agentRegisterOptions,
   handler: agentRegisterHandler as Command['handler'],
 };

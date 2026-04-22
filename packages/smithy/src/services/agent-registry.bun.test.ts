@@ -211,6 +211,59 @@ describe('AgentRegistry', () => {
 
       expect(worker.reportsTo).toBe(director.id);
     });
+
+    test('registerWorker persists projectFilter in metadata', async () => {
+      const worker = await registry.registerWorker({
+        name: 'ScopedWorker',
+        workerMode: 'ephemeral',
+        createdBy: systemEntity,
+        projectFilter: ['el-proja', 'el-projb'] as unknown as import('@stoneforge/core').ProjectId[],
+      });
+
+      const meta = getAgentMetadata(worker);
+      expect(meta?.projectFilter).toEqual(
+        ['el-proja', 'el-projb'] as unknown as import('@stoneforge/core').ProjectId[]
+      );
+    });
+
+    test('registerWorker without projectFilter leaves it undefined (global)', async () => {
+      const worker = await registry.registerWorker({
+        name: 'GlobalWorker',
+        workerMode: 'ephemeral',
+        createdBy: systemEntity,
+      });
+
+      const meta = getAgentMetadata(worker);
+      expect(meta?.projectFilter).toBeUndefined();
+    });
+
+    test('registerDirector persists projectFilter in metadata', async () => {
+      const director = await registry.registerDirector({
+        name: 'ScopedDirector',
+        projectId: 'proj-test',
+        createdBy: systemEntity,
+        projectFilter: ['el-proja'] as unknown as import('@stoneforge/core').ProjectId[],
+      });
+
+      const meta = getAgentMetadata(director);
+      expect(meta?.projectFilter).toEqual(
+        ['el-proja'] as unknown as import('@stoneforge/core').ProjectId[]
+      );
+    });
+
+    test('registerSteward persists projectFilter in metadata', async () => {
+      const steward = await registry.registerSteward({
+        name: 'ScopedSteward',
+        stewardFocus: 'merge',
+        createdBy: systemEntity,
+        projectFilter: ['el-projc'] as unknown as import('@stoneforge/core').ProjectId[],
+      });
+
+      const meta = getAgentMetadata(steward) as StewardMetadata;
+      expect(meta.projectFilter).toEqual(
+        ['el-projc'] as unknown as import('@stoneforge/core').ProjectId[]
+      );
+    });
   });
 
   describe('Agent Queries', () => {

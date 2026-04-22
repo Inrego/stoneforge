@@ -24,7 +24,9 @@ import {
   isWorkerMetadata,
   isStewardMetadata,
   validateAgentMetadata,
+  agentMatchesProject,
 } from './agent.js';
+import type { ProjectId } from '@stoneforge/core';
 
 describe('AgentRole', () => {
   test('AgentRoleValues contains all valid roles', () => {
@@ -206,5 +208,71 @@ describe('validateAgentMetadata', () => {
 
   test('rejects agent metadata with invalid maxConcurrentTasks', () => {
     expect(validateAgentMetadata({ agentRole: 'director', projectId: 'proj-a', maxConcurrentTasks: 'invalid' })).toBe(false);
+  });
+
+  test('validates agent metadata with projectFilter', () => {
+    expect(validateAgentMetadata({
+      agentRole: 'worker',
+      workerMode: 'ephemeral',
+      projectFilter: ['el-abc', 'el-def123'],
+    })).toBe(true);
+    expect(validateAgentMetadata({
+      agentRole: 'director',
+      projectId: 'proj-a',
+      projectFilter: [],
+    })).toBe(true);
+  });
+
+  test('rejects agent metadata with invalid projectFilter', () => {
+    expect(validateAgentMetadata({
+      agentRole: 'worker',
+      workerMode: 'ephemeral',
+      projectFilter: 'el-abc', // not an array
+    })).toBe(false);
+    expect(validateAgentMetadata({
+      agentRole: 'worker',
+      workerMode: 'ephemeral',
+      projectFilter: ['not-a-valid-id'],
+    })).toBe(false);
+    expect(validateAgentMetadata({
+      agentRole: 'director',
+      projectFilter: [123 as unknown as string], // wrong element type
+    })).toBe(false);
+  });
+});
+
+describe('agentMatchesProject', () => {
+  const globalMeta = { projectFilter: undefined };
+  const emptyFilterMeta = { projectFilter: [] as ProjectId[] };
+  const scopedMeta = {
+    projectFilter: ['el-proja', 'el-projb'] as unknown as ProjectId[],
+  };
+
+  test('agent with undefined filter matches any task', () => {
+    expect(agentMatchesProject(globalMeta, 'el-anything' as ProjectId)).toBe(true);
+    expect(agentMatchesProject(globalMeta, undefined)).toBe(true);
+  });
+
+  test('agent with empty filter array matches any task (treated as global)', () => {
+    expect(agentMatchesProject(emptyFilterMeta, 'el-anything' as ProjectId)).toBe(true);
+    expect(agentMatchesProject(emptyFilterMeta, undefined)).toBe(true);
+  });
+
+  test('scoped agent matches tasks whose projectId is in the filter', () => {
+    expect(agentMatchesProject(scopedMeta, 'el-proja' as ProjectId)).toBe(true);
+    expect(agentMatchesProject(scopedMeta, 'el-projb' as ProjectId)).toBe(true);
+  });
+
+  test('scoped agent does not match tasks outside its filter', () => {
+    expect(agentMatchesProject(scopedMeta, 'el-projc' as ProjectId)).toBe(false);
+  });
+
+  test('scoped agent does not pick up tasks without a projectId', () => {
+    expect(agentMatchesProject(scopedMeta, undefined)).toBe(false);
+  });
+
+  test('handles undefined metadata safely (treats as global)', () => {
+    expect(agentMatchesProject(undefined, 'el-anything' as ProjectId)).toBe(true);
+    expect(agentMatchesProject(undefined, undefined)).toBe(true);
   });
 });

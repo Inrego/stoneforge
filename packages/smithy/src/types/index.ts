@@ -42,6 +42,8 @@ export {
   type AgentFilter,
   // Validation
   validateAgentMetadata,
+  // Project filter utilities
+  agentMatchesProject,
 } from './agent.js';
 
 // Task metadata types

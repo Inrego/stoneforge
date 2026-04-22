@@ -77,7 +77,7 @@ describe('Agent Command Structure', () => {
 
     it('should have all registration options', () => {
       expect(agentRegisterCommand.options).toBeDefined();
-      expect(agentRegisterCommand.options!.length).toBe(11);
+      expect(agentRegisterCommand.options!.length).toBe(13);
 
       // Required role option
       const roleOption = agentRegisterCommand.options![0];
@@ -133,6 +133,18 @@ describe('Agent Command Structure', () => {
       const targetBranchOption = agentRegisterCommand.options![10];
       expect(targetBranchOption.name).toBe('targetBranch');
       expect(targetBranchOption.hasValue).toBe(true);
+
+      // Project option (director scope)
+      const projectOption = agentRegisterCommand.options![11];
+      expect(projectOption.name).toBe('project');
+      expect(projectOption.short).toBe('p');
+      expect(projectOption.hasValue).toBe(true);
+
+      // Project filter option (dispatch scope)
+      const projectFilterOption = agentRegisterCommand.options![12];
+      expect(projectFilterOption.name).toBe('projectFilter');
+      expect(projectFilterOption.hasValue).toBe(true);
+      expect(projectFilterOption.description).toContain('project');
     });
 
     it('should have --model option with correct properties', () => {

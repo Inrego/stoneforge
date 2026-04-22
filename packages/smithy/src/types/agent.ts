@@ -11,7 +11,8 @@
  * `metadata` field to track orchestrator-specific properties.
  */
 
-import type { EntityId, ChannelId, Timestamp, ElementId } from '@stoneforge/core';
+import type { EntityId, ChannelId, Timestamp, ElementId, ProjectId } from '@stoneforge/core';
+import { isValidProjectId } from '@stoneforge/core';
 
 // ============================================================================
 // Agent Role Types
@@ -187,6 +188,17 @@ export interface BaseAgentMetadata {
   readonly model?: string;
   /** Custom executable path for the agent's provider CLI (e.g., '/usr/local/bin/claude'). If not set, uses provider default. */
   readonly executablePath?: string;
+  /**
+   * Optional project scope for this agent. Controls which projects' tasks the
+   * dispatch daemon will route to this agent.
+   *
+   * - `undefined` or empty array: agent is global — matches tasks from any project.
+   * - Non-empty array: agent only matches tasks whose `projectId` is in this list.
+   *
+   * Tasks without a `projectId` are considered workspace-scoped and are only
+   * matched against global agents (empty filter).
+   */
+  readonly projectFilter?: readonly ProjectId[];
 }
 
 /**
@@ -305,6 +317,8 @@ export interface RegisterDirectorInput {
   readonly executablePath?: string;
   /** Target branch for task merges. Optional — when unset, uses workspace default. */
   readonly targetBranch?: string;
+  /** Optional project scope. Empty/undefined means the agent is global. */
+  readonly projectFilter?: readonly ProjectId[];
 }
 
 /**
@@ -331,6 +345,8 @@ export interface RegisterWorkerInput {
   readonly model?: string;
   /** Custom executable path for the agent's provider CLI. If not set, uses provider default. */
   readonly executablePath?: string;
+  /** Optional project scope. Empty/undefined means the worker is global. */
+  readonly projectFilter?: readonly ProjectId[];
 }
 
 /**
@@ -370,6 +386,8 @@ export interface RegisterStewardInput {
   readonly model?: string;
   /** Custom executable path for the agent's provider CLI. If not set, uses provider default. */
   readonly executablePath?: string;
+  /** Optional project scope. Empty/undefined means the steward is global. */
+  readonly projectFilter?: readonly ProjectId[];
 }
 
 // ============================================================================
@@ -423,6 +441,16 @@ export function validateAgentMetadata(metadata: unknown): metadata is AgentMetad
     return false;
   }
 
+  // Validate projectFilter if present: must be an array of valid project IDs
+  if (obj.projectFilter !== undefined) {
+    if (!Array.isArray(obj.projectFilter)) {
+      return false;
+    }
+    if (!obj.projectFilter.every((id) => isValidProjectId(id))) {
+      return false;
+    }
+  }
+
   switch (obj.agentRole) {
     case 'director':
       // Directors must have a non-empty projectId
@@ -443,4 +471,40 @@ export function validateAgentMetadata(metadata: unknown): metadata is AgentMetad
     default:
       return false;
   }
+}
+
+// ============================================================================
+// Project Filter Utilities
+// ============================================================================
+
+/**
+ * Returns `true` when the given agent (by its metadata) is allowed to pick up
+ * a task belonging to the given project.
+ *
+ * Matching rules:
+ * - Agents with an empty or undefined `projectFilter` are **global** and match
+ *   every task — regardless of whether the task has a `projectId`.
+ * - Agents with a non-empty `projectFilter` match only tasks whose `projectId`
+ *   is present in the filter. Tasks without a `projectId` (workspace-scoped)
+ *   are **not** routed to filtered agents — they stay available for global
+ *   agents only, preserving the "opt-in" nature of project scoping.
+ *
+ * @param metadata - The agent's metadata (from `getAgentMetadata`)
+ * @param taskProjectId - The task's `projectId`, or `undefined` for legacy/
+ *   workspace-level tasks.
+ */
+export function agentMatchesProject(
+  metadata: Pick<BaseAgentMetadata, 'projectFilter'> | undefined,
+  taskProjectId: ProjectId | undefined
+): boolean {
+  const filter = metadata?.projectFilter;
+  if (!filter || filter.length === 0) {
+    // Global agent — matches everything
+    return true;
+  }
+  if (!taskProjectId) {
+    // Task is workspace-scoped; filtered agents do not pick it up
+    return false;
+  }
+  return filter.includes(taskProjectId);
 }

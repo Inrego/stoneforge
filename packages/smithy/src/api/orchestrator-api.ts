@@ -265,6 +265,7 @@ export class OrchestratorAPIImpl extends QuarryAPIImpl implements OrchestratorAP
       executablePath: input.executablePath,
       targetBranch: input.targetBranch,
       projectId: input.projectId,
+      projectFilter: input.projectFilter,
     };
 
     // Create the entity with agent metadata nested under the agent key
@@ -303,6 +304,7 @@ export class OrchestratorAPIImpl extends QuarryAPIImpl implements OrchestratorAP
       provider: input.provider,
       model: input.model,
       executablePath: input.executablePath,
+      projectFilter: input.projectFilter,
     };
 
     // Create the entity with agent metadata nested under the agent key
@@ -344,6 +346,7 @@ export class OrchestratorAPIImpl extends QuarryAPIImpl implements OrchestratorAP
       provider: input.provider,
       model: input.model,
       executablePath: input.executablePath,
+      projectFilter: input.projectFilter,
     };
 
     // Create the entity with agent metadata nested under the agent key
