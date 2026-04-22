@@ -14,6 +14,21 @@ export interface AutoExportOptions {
   backend: StorageBackend;
   syncConfig: SyncConfig;
   outputDir: string;
+  /**
+   * Optional project scope. When set, the service only reads/writes JSONL
+   * files for elements owned by this project, and only clears the dirty
+   * markers it has exported. Multiple `AutoExportService`s can coexist on a
+   * single backend, each pinned to a different project.
+   *
+   * `undefined` keeps the legacy behavior: a single global stream covering
+   * every element in the backend.
+   */
+  projectId?: string;
+  /**
+   * Optional log label. Helps distinguish per-project streams in the logs
+   * when several services share a process. Falls back to the project id.
+   */
+  label?: string;
 }
 
 /**
@@ -24,6 +39,8 @@ export class AutoExportService {
   private backend: StorageBackend;
   private syncConfig: SyncConfig;
   private outputDir: string;
+  private projectId?: string;
+  private label: string;
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private exporting = false;
 
@@ -32,6 +49,8 @@ export class AutoExportService {
     this.backend = options.backend;
     this.syncConfig = options.syncConfig;
     this.outputDir = options.outputDir;
+    this.projectId = options.projectId;
+    this.label = options.label ?? options.projectId ?? 'global';
   }
 
   /**
@@ -52,21 +71,22 @@ export class AutoExportService {
       await this.syncService.export({
         outputDir: this.outputDir,
         full: true,
+        projectId: this.projectId,
       });
-      console.log('[auto-export] Initial full export complete');
+      console.log(`[auto-export:${this.label}] Initial full export complete`);
     } catch (err) {
-      console.error('[auto-export] Initial full export failed:', err);
+      console.error(`[auto-export:${this.label}] Initial full export failed:`, err);
     }
 
     // Start polling
     this.pollInterval = setInterval(() => {
       this.tick().catch((err) => {
-        console.error('[auto-export] Export tick failed:', err);
+        console.error(`[auto-export:${this.label}] Export tick failed:`, err);
       });
     }, this.syncConfig.exportDebounce);
 
     console.log(
-      `[auto-export] Started (polling every ${this.syncConfig.exportDebounce}ms)`
+      `[auto-export:${this.label}] Started (polling every ${this.syncConfig.exportDebounce}ms)`
     );
   }
 
@@ -77,7 +97,7 @@ export class AutoExportService {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
       this.pollInterval = null;
-      console.log('[auto-export] Stopped');
+      console.log(`[auto-export:${this.label}] Stopped`);
     }
   }
 
@@ -89,7 +109,7 @@ export class AutoExportService {
       return;
     }
 
-    const dirty = this.backend.getDirtyElements();
+    const dirty = this.backend.getDirtyElements({ projectId: this.projectId });
     if (dirty.length === 0) {
       return;
     }
@@ -99,6 +119,7 @@ export class AutoExportService {
       await this.syncService.export({
         outputDir: this.outputDir,
         full: false,
+        projectId: this.projectId,
       });
     } finally {
       this.exporting = false;

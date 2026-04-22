@@ -274,6 +274,16 @@ export interface ExportOptions {
   elementsFile?: string;
   /** Dependencies file name override */
   dependenciesFile?: string;
+  /**
+   * Restrict the export to elements owned by a single project.
+   *   - `undefined` — no scope filter (all elements, legacy behavior)
+   *   - a string    — only elements whose `project_id` matches
+   *   - `null`      — only elements with no project (`project_id IS NULL`)
+   *
+   * Dependencies are included when the `blocked` side belongs to the same
+   * scope, so each dependency is emitted by exactly one stream.
+   */
+  projectId?: string | null;
 }
 
 /**
@@ -290,6 +300,12 @@ export interface ImportOptions {
   elementsFile?: string;
   /** Dependencies file name override */
   dependenciesFile?: string;
+  /**
+   * When set, every imported element with no explicit `projectId` is
+   * attributed to this project. Elements whose JSONL already carries a
+   * `projectId` are left untouched (cross-project imports remain honest).
+   */
+  projectId?: string | null;
 }
 
 // ============================================================================

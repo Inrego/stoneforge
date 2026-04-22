@@ -27,7 +27,7 @@ import type {
   DirtyTrackingOptions,
   SqlitePragmas,
 } from './types.js';
-import { DEFAULT_PRAGMAS } from './types.js';
+import { DEFAULT_PRAGMAS, buildDirtyElementsQuery } from './types.js';
 import { connectionError, mapStorageError, migrationError } from './errors.js';
 
 // ============================================================================
@@ -381,12 +381,13 @@ export class NodeStorageBackend implements StorageBackend {
     }
   }
 
-  getDirtyElements(_options?: DirtyTrackingOptions): DirtyElement[] {
+  getDirtyElements(options?: DirtyTrackingOptions): DirtyElement[] {
     try {
       const db = this.ensureOpen();
-      const rows = db.prepare(
-        'SELECT element_id, marked_at FROM dirty_elements ORDER BY marked_at'
-      ).all() as Array<{ element_id: string; marked_at: string }>;
+      const query = buildDirtyElementsQuery(options);
+      const rows = db
+        .prepare(query.sql)
+        .all(...query.params) as Array<{ element_id: string; marked_at: string }>;
 
       return rows.map(row => ({
         elementId: row.element_id as DirtyElement['elementId'],

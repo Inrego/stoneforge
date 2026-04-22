@@ -34,6 +34,25 @@ function createTestBackend(path: string): StorageBackend {
   return backend;
 }
 
+/**
+ * rmSync with a short retry loop to handle Windows + bun:sqlite WAL
+ * release timing. Swallows the final failure — /tmp self-cleans.
+ */
+function tryRmSync(dir: string): void {
+  if (!existsSync(dir)) return;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch {
+      const until = Date.now() + 50;
+      while (Date.now() < until) {
+        /* spin */
+      }
+    }
+  }
+}
+
 function createTestElement(overrides: Partial<Element> & Record<string, unknown> = {}): Element {
   return {
     id: `el-${Math.random().toString(36).substring(2, 8)}` as ElementId,
@@ -94,9 +113,7 @@ describe('AutoExportService', () => {
     if (backend.isOpen) {
       backend.close();
     }
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+    tryRmSync(tempDir);
   });
 
   // --------------------------------------------------------------------------
@@ -289,5 +306,83 @@ describe('AutoExportService', () => {
     });
 
     expect(service).toBeInstanceOf(AutoExportService);
+  });
+
+  // --------------------------------------------------------------------------
+  // Per-project scope
+  // --------------------------------------------------------------------------
+
+  /** Insert an element with an explicit `project_id` column value. */
+  function insertScoped(
+    b: StorageBackend,
+    id: string,
+    projectId: string | null
+  ): void {
+    b.run(
+      `INSERT INTO elements (id, type, data, created_at, updated_at, created_by, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        ElementType.TASK,
+        JSON.stringify({ title: 't' }),
+        createTimestamp(),
+        createTimestamp(),
+        'el-sys',
+        projectId,
+      ]
+    );
+  }
+
+  test('scoped stream only exports its own project', async () => {
+    insertScoped(backend, 'el-ap', 'el-proja');
+    insertScoped(backend, 'el-bp', 'el-projb');
+
+    const outDir = join(tempDir, 'proja-sync');
+    const service = createAutoExportService({
+      syncService,
+      backend,
+      syncConfig: defaultSyncConfig(),
+      outputDir: outDir,
+      projectId: 'el-proja',
+    });
+
+    await service.start();
+
+    const content = readFileSync(join(outDir, 'elements.jsonl'), 'utf-8');
+    expect(content).toContain('el-ap');
+    expect(content).not.toContain('el-bp');
+
+    service.stop();
+  });
+
+  test('scoped stream ignores dirty elements owned by other projects', async () => {
+    const outDir = join(tempDir, 'proja-sync');
+    const service = createAutoExportService({
+      syncService,
+      backend,
+      syncConfig: defaultSyncConfig(),
+      outputDir: outDir,
+      projectId: 'el-proja',
+    });
+
+    await service.start();
+
+    // Insert a B-scoped element and mark it dirty. The A-scoped stream
+    // should not react to it.
+    insertScoped(backend, 'el-bp', 'el-projb');
+    backend.markDirty('el-bp');
+
+    await sleep(120);
+
+    const dirty = backend
+      .getDirtyElements()
+      .map((d) => d.elementId as unknown as string);
+    // B's marker survives because A's stream ignores it.
+    expect(dirty).toContain('el-bp');
+
+    const content = readFileSync(join(outDir, 'elements.jsonl'), 'utf-8');
+    expect(content).not.toContain('el-bp');
+
+    service.stop();
   });
 });

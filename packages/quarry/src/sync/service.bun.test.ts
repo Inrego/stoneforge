@@ -27,6 +27,28 @@ function createTempDir(): string {
   return mkdtempSync(join(tmpdir(), 'stoneforge-sync-test-'));
 }
 
+/**
+ * rmSync with a short retry loop. Windows + bun:sqlite sometimes keeps a
+ * WAL/journal handle open briefly after `close()`; the retry hides that
+ * rather than flake the whole suite. If the dir is still busy after the
+ * last attempt we swallow the error — /tmp is self-cleaning.
+ */
+function tryRmSync(dir: string): void {
+  if (!existsSync(dir)) return;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch {
+      // Busy-wait a tiny bit; Windows tends to release within ~50ms.
+      const until = Date.now() + 50;
+      while (Date.now() < until) {
+        /* spin */
+      }
+    }
+  }
+}
+
 function createTestElement(overrides: Partial<Element> & Record<string, unknown> = {}): Element {
   return {
     id: `el-${Math.random().toString(36).substring(2, 8)}` as ElementId,
@@ -134,9 +156,10 @@ describe('SyncService', () => {
     if (backend.isOpen) {
       backend.close();
     }
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+    // On Windows, SQLite WAL files can linger for a few ms after `close()`,
+    // producing an EBUSY when rmSync races them. Retry briefly and swallow
+    // the error if the dir is still locked — the OS will GC it from /tmp.
+    tryRmSync(tempDir);
   });
 
   // --------------------------------------------------------------------------
@@ -702,6 +725,164 @@ describe('SyncService', () => {
 
       expect(result.elementsImported).toBe(1);
       expect(result.errors).toHaveLength(1);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Per-project scope (projectId filter)
+  //
+  // Uses an independent in-memory backend so the suite is isolated from the
+  // outer suite's temp-dir teardown (which can be flaky on Windows when
+  // SQLite WAL files linger a few ms after close).
+  // --------------------------------------------------------------------------
+
+  describe('per-project scope', () => {
+    let memBackend: StorageBackend;
+    let memService: SyncService;
+    let memDir: string;
+
+    beforeEach(() => {
+      memDir = mkdtempSync(join(tmpdir(), 'stoneforge-sync-proj-'));
+      memBackend = createStorage({ path: ':memory:' });
+      initializeSchema(memBackend);
+      memService = createSyncService(memBackend);
+    });
+
+    afterEach(() => {
+      if (memBackend.isOpen) memBackend.close();
+      tryRmSync(memDir);
+    });
+
+    /** Insert an element whose `project_id` column is set. */
+    function insertScopedElement(
+      el: Element,
+      projectId: string | null,
+      existing: StorageBackend = memBackend
+    ): void {
+      const { id, type, createdAt, updatedAt, createdBy, tags, ...data } = el;
+      existing.run(
+        `INSERT INTO elements (id, type, data, created_at, updated_at, created_by, project_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, type, JSON.stringify(data), createdAt, updatedAt, createdBy, projectId]
+      );
+      for (const tag of tags) {
+        existing.run('INSERT INTO tags (element_id, tag) VALUES (?, ?)', [id, tag]);
+      }
+    }
+
+    test('full export restricts elements to the requested project', async () => {
+      insertScopedElement(createTestElement({ id: 'el-a1' as ElementId }), 'el-proja');
+      insertScopedElement(createTestElement({ id: 'el-b1' as ElementId }), 'el-projb');
+      insertScopedElement(createTestElement({ id: 'el-u1' as ElementId }), null);
+
+      const outDirA = join(memDir, 'proja');
+      const result = await memService.export({
+        outputDir: outDirA,
+        full: true,
+        projectId: 'el-proja',
+      });
+
+      expect(result.elementsExported).toBe(1);
+      const content = readFileSync(result.elementsFile, 'utf-8');
+      expect(content).toContain('el-a1');
+      expect(content).not.toContain('el-b1');
+      expect(content).not.toContain('el-u1');
+    });
+
+    test('full export with projectId=null returns only unassigned elements', async () => {
+      insertScopedElement(createTestElement({ id: 'el-scoped' as ElementId }), 'el-proja');
+      insertScopedElement(createTestElement({ id: 'el-loose' as ElementId }), null);
+
+      const result = await memService.export({
+        outputDir: join(memDir, 'unassigned'),
+        full: true,
+        projectId: null,
+      });
+
+      expect(result.elementsExported).toBe(1);
+      const content = readFileSync(result.elementsFile, 'utf-8');
+      expect(content).toContain('el-loose');
+      expect(content).not.toContain('el-scoped');
+    });
+
+    test('dependencies are emitted by the stream that owns the blocked element', async () => {
+      insertScopedElement(createTestElement({ id: 'el-a1' as ElementId }), 'el-proja');
+      insertScopedElement(createTestElement({ id: 'el-b1' as ElementId }), 'el-projb');
+      // Dep: a1 (proja) is blocked by b1 (projb) → belongs to proja's stream.
+      insertDependency(
+        memBackend,
+        createTestDependency('el-a1' as ElementId, 'el-b1' as ElementId)
+      );
+
+      const outA = await memService.export({
+        outputDir: join(memDir, 'proja'),
+        full: true,
+        projectId: 'el-proja',
+      });
+      const outB = await memService.export({
+        outputDir: join(memDir, 'projb'),
+        full: true,
+        projectId: 'el-projb',
+      });
+
+      expect(outA.dependenciesExported).toBe(1);
+      expect(outB.dependenciesExported).toBe(0);
+    });
+
+    test('incremental export clears only the exported project\'s dirty markers', async () => {
+      insertScopedElement(createTestElement({ id: 'el-a1' as ElementId }), 'el-proja');
+      insertScopedElement(createTestElement({ id: 'el-b1' as ElementId }), 'el-projb');
+      memBackend.markDirty('el-a1');
+      memBackend.markDirty('el-b1');
+
+      // Project A exports incrementally → should not touch B's dirty marker.
+      await memService.export({
+        outputDir: join(memDir, 'proja'),
+        full: false,
+        projectId: 'el-proja',
+      });
+
+      const remaining = memBackend
+        .getDirtyElements()
+        .map((d) => d.elementId as unknown as string);
+      expect(remaining).toContain('el-b1');
+      expect(remaining).not.toContain('el-a1');
+    });
+
+    test('insertElement hoists projectId into the project_id column', () => {
+      const task = createTestElement({
+        id: 'el-hoisted' as ElementId,
+        projectId: 'el-projx',
+      });
+      const jsonl = `${JSON.stringify({ ...task, contentHash: '' })}`;
+
+      const result = memService.importFromStrings(jsonl, '');
+      expect(result.elementsImported).toBe(1);
+
+      const row = memBackend.queryOne<{ project_id: string | null }>(
+        'SELECT project_id FROM elements WHERE id = ?',
+        ['el-hoisted']
+      );
+      expect(row?.project_id).toBe('el-projx');
+    });
+
+    test('import scoped to a projectId fills in missing projectIds on parsed rows', () => {
+      const task = createTestElement({ id: 'el-bare' as ElementId });
+      // Deliberately drop projectId from the JSONL line so the import has to
+      // infer it from the scope (like a per-project git checkout would).
+      const jsonl = `${JSON.stringify({ ...task, contentHash: '' })}`;
+
+      const result = memService.importFromStrings(jsonl, '', {
+        inputDir: memDir,
+        projectId: 'el-projinfer',
+      });
+      expect(result.elementsImported).toBe(1);
+
+      const row = memBackend.queryOne<{ project_id: string | null }>(
+        'SELECT project_id FROM elements WHERE id = ?',
+        ['el-bare']
+      );
+      expect(row?.project_id).toBe('el-projinfer');
     });
   });
 });

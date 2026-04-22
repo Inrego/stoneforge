@@ -92,16 +92,19 @@ export class SyncService {
       await mkdir(options.outputDir, { recursive: true });
     }
 
-    // Get elements to export
+    const scope = options.projectId;
+
+    // Get elements to export, scoped to the requested project when provided
     const elements = options.full
-      ? this.getAllElements(options.includeEphemeral ?? false)
-      : this.getDirtyElementsData();
+      ? this.getAllElements(options.includeEphemeral ?? false, scope)
+      : this.getDirtyElementsData(scope);
 
     // Sort elements for export (entities first, then by creation time)
     const sortedElements = sortElementsForExport(elements);
 
-    // Get dependencies
-    const dependencies = this.getAllDependencies();
+    // Get dependencies scoped to the project (a dep is emitted by the stream
+    // that owns its `blocked` element — exactly one stream, always).
+    const dependencies = this.getAllDependencies(scope);
     const sortedDependencies = sortDependenciesForExport(dependencies);
 
     // Build file paths
@@ -123,9 +126,11 @@ export class SyncService {
     await writeFile(elementsPath, elementsContent + (elementsContent ? '\n' : ''));
     await writeFile(dependenciesPath, dependenciesContent + (dependenciesContent ? '\n' : ''));
 
-    // Clear dirty tracking after successful export
+    // Clear dirty tracking after successful export. When a project scope is
+    // set, only clear the dirty markers we just exported — other projects'
+    // streams own their own markers and must not be wiped.
     if (!options.full) {
-      this.backend.clearDirty();
+      this.clearDirtyAfterExport(scope, sortedElements);
     }
 
     return {
@@ -149,16 +154,18 @@ export class SyncService {
       mkdirSync(options.outputDir, { recursive: true });
     }
 
-    // Get elements to export
+    const scope = options.projectId;
+
+    // Get elements to export, scoped to the requested project when provided
     const elements = options.full
-      ? this.getAllElements(options.includeEphemeral ?? false)
-      : this.getDirtyElementsData();
+      ? this.getAllElements(options.includeEphemeral ?? false, scope)
+      : this.getDirtyElementsData(scope);
 
     // Sort elements for export
     const sortedElements = sortElementsForExport(elements);
 
-    // Get dependencies
-    const dependencies = this.getAllDependencies();
+    // Get dependencies scoped to the project
+    const dependencies = this.getAllDependencies(scope);
     const sortedDependencies = sortDependenciesForExport(dependencies);
 
     // Build file paths
@@ -180,9 +187,9 @@ export class SyncService {
     writeFileSync(elementsPath, elementsContent + (elementsContent ? '\n' : ''));
     writeFileSync(dependenciesPath, dependenciesContent + (dependenciesContent ? '\n' : ''));
 
-    // Clear dirty tracking after successful export
+    // Clear dirty tracking after successful export (scoped)
     if (!options.full) {
-      this.backend.clearDirty();
+      this.clearDirtyAfterExport(scope, sortedElements);
     }
 
     return {
@@ -303,6 +310,20 @@ export class SyncService {
         message: err.message,
         content: err.content,
       });
+    }
+
+    // When importing into a specific project scope, attribute any incoming
+    // element that does not already carry a projectId to that scope. This
+    // lets per-project JSONL files (which typically omit `projectId` because
+    // the file itself is the scope) round-trip correctly.
+    if (options?.projectId !== undefined && options.projectId !== null) {
+      const scope = options.projectId;
+      for (const el of parsedElements) {
+        const existing = (el as unknown as { projectId?: string | null }).projectId;
+        if (existing === undefined || existing === null) {
+          (el as unknown as { projectId?: string }).projectId = scope;
+        }
+      }
     }
 
     // Parse dependencies
@@ -430,18 +451,34 @@ export class SyncService {
   // --------------------------------------------------------------------------
 
   /**
-   * Get all elements from storage
+   * Get all elements from storage, optionally restricted to a project scope.
+   *
+   * @param includeEphemeral - include ephemeral workflow rows and their children
+   * @param projectId - `undefined` for no filter, a string to match
+   *   `project_id`, or `null` to match unassigned rows (`project_id IS NULL`)
    */
-  private getAllElements(includeEphemeral: boolean): Element[] {
+  private getAllElements(
+    includeEphemeral: boolean,
+    projectId?: string | null
+  ): Element[] {
     // Query all elements
     let sql = 'SELECT * FROM elements WHERE deleted_at IS NULL';
+    const params: unknown[] = [];
+
+    if (projectId === null) {
+      sql += ' AND project_id IS NULL';
+    } else if (projectId !== undefined) {
+      sql += ' AND project_id = ?';
+      params.push(projectId);
+    }
+
     if (!includeEphemeral) {
       // Exclude ephemeral workflows (with ephemeral: true)
       sql += " AND JSON_EXTRACT(data, '$.ephemeral') IS NOT true";
     }
     sql += ' ORDER BY created_at';
 
-    const rows = this.backend.query<ElementRow>(sql);
+    const rows = this.backend.query<ElementRow>(sql, params);
     let elements = rows.map((row) => this.rowToElement(row));
 
     // If not including ephemeral, also filter out tasks that are children of ephemeral workflows
@@ -486,10 +523,11 @@ export class SyncService {
   }
 
   /**
-   * Get dirty elements data (for incremental export)
+   * Get dirty elements data (for incremental export), optionally restricted
+   * to a project scope via the underlying `DirtyTrackingOptions.projectId`.
    */
-  private getDirtyElementsData(): Element[] {
-    const dirtyRecords = this.backend.getDirtyElements();
+  private getDirtyElementsData(projectId?: string | null): Element[] {
+    const dirtyRecords = this.backend.getDirtyElements({ projectId });
     const elements: Element[] = [];
 
     for (const record of dirtyRecords) {
@@ -506,10 +544,30 @@ export class SyncService {
   }
 
   /**
-   * Get all dependencies from storage
+   * Get all dependencies from storage, optionally scoped to a single project.
+   *
+   * A dependency belongs to the project of its `blocked` element (the side
+   * that is blocked *by* another). This keeps each dep in exactly one
+   * project's JSONL when multiple streams export in parallel.
    */
-  private getAllDependencies(): Dependency[] {
-    const rows = this.backend.query<DependencyRow>('SELECT * FROM dependencies ORDER BY created_at');
+  private getAllDependencies(projectId?: string | null): Dependency[] {
+    let sql = 'SELECT d.* FROM dependencies d';
+    const params: unknown[] = [];
+
+    if (projectId === null) {
+      sql +=
+        ' INNER JOIN elements e ON e.id = d.blocked_id' +
+        ' WHERE e.project_id IS NULL';
+    } else if (projectId !== undefined) {
+      sql +=
+        ' INNER JOIN elements e ON e.id = d.blocked_id' +
+        ' WHERE e.project_id = ?';
+      params.push(projectId);
+    }
+
+    sql += ' ORDER BY d.created_at';
+
+    const rows = this.backend.query<DependencyRow>(sql, params);
 
     return rows.map((row) => ({
       blockedId: row.blocked_id as ElementId,
@@ -519,6 +577,25 @@ export class SyncService {
       createdBy: row.created_by as EntityId,
       metadata: row.metadata ? JSON.parse(row.metadata) : {},
     }));
+  }
+
+  /**
+   * Clear dirty tracking after an incremental export.
+   *
+   * When no project scope is set we keep the legacy wholesale `clearDirty()`
+   * semantics. When a scope is set we clear only the specific ids we just
+   * exported, so a peer project's dirty markers remain untouched.
+   */
+  private clearDirtyAfterExport(
+    projectId: string | null | undefined,
+    exported: Element[]
+  ): void {
+    if (projectId === undefined) {
+      this.backend.clearDirty();
+      return;
+    }
+    if (exported.length === 0) return;
+    this.backend.clearDirtyElements(exported.map((e) => e.id as string));
   }
 
   /**
@@ -576,7 +653,11 @@ export class SyncService {
   }
 
   /**
-   * Insert an element into storage (within transaction)
+   * Insert an element into storage (within transaction).
+   *
+   * `projectId` is hoisted from the element into the dedicated `project_id`
+   * column so per-project SQL queries (filters, indexes) can see it without
+   * parsing the JSON blob.
    */
   private insertElement(
     tx: {
@@ -587,15 +668,16 @@ export class SyncService {
     // Extract base fields
     const { id, type, createdAt, updatedAt, createdBy, tags, ...typeData } = element;
 
+    const projectId = extractProjectId(typeData);
     const data = JSON.stringify(typeData);
 
     // Check for deletedAt (tombstone)
     const deletedAt = 'deletedAt' in element ? (element as { deletedAt?: string }).deletedAt : null;
 
     tx.run(
-      `INSERT OR REPLACE INTO elements (id, type, data, created_at, updated_at, created_by, deleted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, type, data, createdAt, updatedAt, createdBy, deletedAt ?? null]
+      `INSERT OR REPLACE INTO elements (id, type, data, created_at, updated_at, created_by, deleted_at, project_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, type, data, createdAt, updatedAt, createdBy, deletedAt ?? null, projectId]
     );
 
     // Update tags
@@ -606,7 +688,10 @@ export class SyncService {
   }
 
   /**
-   * Update an element in storage (within transaction)
+   * Update an element in storage (within transaction).
+   *
+   * Updates `project_id` alongside `data` so moving an element between
+   * projects via JSONL import is a single atomic step.
    */
   private updateElement(
     tx: {
@@ -617,15 +702,16 @@ export class SyncService {
     // Extract base fields
     const { id, type, createdAt, updatedAt, createdBy, tags, ...typeData } = element;
 
+    const projectId = extractProjectId(typeData);
     const data = JSON.stringify(typeData);
 
     // Check for deletedAt (tombstone)
     const deletedAt = 'deletedAt' in element ? (element as { deletedAt?: string }).deletedAt : null;
 
     tx.run(
-      `UPDATE elements SET data = ?, updated_at = ?, deleted_at = ?
+      `UPDATE elements SET data = ?, updated_at = ?, deleted_at = ?, project_id = ?
        WHERE id = ?`,
-      [data, updatedAt, deletedAt ?? null, id]
+      [data, updatedAt, deletedAt ?? null, projectId, id]
     );
 
     // Update tags
@@ -680,4 +766,21 @@ export class SyncService {
  */
 export function createSyncService(backend: StorageBackend): SyncService {
   return new SyncService(backend);
+}
+
+/**
+ * Pull a `projectId` out of an element's "type data" (everything except the
+ * base Element fields) and normalize to the shape the `project_id` column
+ * wants: a non-empty string, or `null`.
+ *
+ * Placed at module scope (not a class member) so it can be reused by unit
+ * tests and by any future direct-insert helpers without pulling in the
+ * service closure.
+ */
+function extractProjectId(typeData: Record<string, unknown>): string | null {
+  const raw = (typeData as { projectId?: unknown }).projectId;
+  if (typeof raw === 'string' && raw.length > 0) {
+    return raw;
+  }
+  return null;
 }

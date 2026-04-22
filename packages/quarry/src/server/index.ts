@@ -70,6 +70,10 @@ import { createStorage, initializeSchema } from '@stoneforge/storage';
 import { createQuarryAPI } from '../api/quarry-api.js';
 import { createSyncService } from '../sync/service.js';
 import { createAutoExportService } from '../sync/auto-export.js';
+import {
+  ProjectSyncCoordinator,
+  createProjectSyncCoordinator,
+} from '../sync/project-coordinator.js';
 import { createInboxService } from '../services/inbox.js';
 import { loadConfig } from '../config/config.js';
 import { loadProjectRegistryForBoot } from '../projects/service.js';
@@ -118,7 +122,21 @@ export interface QuarryApp {
   app: InstanceType<typeof Hono>;
   api: QuarryAPI;
   syncService: SyncService;
+  /**
+   * Legacy single-stream auto-export service. Present only when no projects
+   * are registered in `~/.stoneforge/projects.json`; falls back to the
+   * classic workspace-level `.stoneforge/sync/` output. When projects ARE
+   * registered, this is a no-op shell and `projectSyncCoordinator` is the
+   * live service driving per-project JSONL files.
+   */
   autoExportService: AutoExportService;
+  /**
+   * Per-project JSONL sync coordinator. Present only when projects are
+   * registered. Owns one {@link AutoExportService} per project, each routed
+   * to `{project.path}/.stoneforge/` so each project's data travels with
+   * its own git tree.
+   */
+  projectSyncCoordinator: ProjectSyncCoordinator | null;
   inboxService: InboxService;
   broadcaster: ReturnType<typeof initializeBroadcaster>;
   storageBackend: ReturnType<typeof createStorage>;
@@ -201,17 +219,51 @@ export function createQuarryApp(options: QuarryServerOptions = {}): QuarryApp {
   // ============================================================================
   // Initialize Auto Export
   // ============================================================================
+  //
+  // Two modes:
+  //   1. Projects registered → one stream per project, routed to
+  //      `{project.path}/.stoneforge/`. Each project's JSONL travels with
+  //      its own git tree (per-project git portability).
+  //   2. No projects registered → legacy single-stream behavior to the
+  //      workspace-local `.stoneforge/sync/` dir. Keeps older setups and
+  //      :memory: boots working without forcing a registry migration.
+  //
+  // The single-stream shell is always created (wiring for the QuarryApp
+  // return shape); in per-project mode it is a no-op: its `start()` is
+  // never invoked so it doesn't touch the filesystem or dirty markers.
 
   const config = loadConfig();
+
+  const registeredProjects = projectsService?.list() ?? [];
+  const usePerProjectSync = registeredProjects.length > 0;
+
   const autoExportService = createAutoExportService({
     syncService,
     backend: storageBackend,
     syncConfig: config.sync,
     outputDir: resolve(PROJECT_ROOT, '.stoneforge/sync'),
   });
-  autoExportService.start().catch((err: Error) => {
-    console.error('[stoneforge] Failed to start auto-export:', err);
-  });
+
+  let projectSyncCoordinator: ProjectSyncCoordinator | null = null;
+
+  if (usePerProjectSync && projectsService) {
+    projectSyncCoordinator = createProjectSyncCoordinator({
+      syncService,
+      backend: storageBackend,
+      syncConfig: config.sync,
+      projectsService,
+    });
+    projectSyncCoordinator.start().catch((err: Error) => {
+      console.error('[stoneforge] Failed to start project sync coordinator:', err);
+    });
+    console.log(
+      `[stoneforge] Per-project sync active for ${registeredProjects.length} project(s)`
+    );
+  } else {
+    autoExportService.start().catch((err: Error) => {
+      console.error('[stoneforge] Failed to start auto-export:', err);
+    });
+  }
 
   // ============================================================================
   // Initialize Event Broadcaster
@@ -3682,7 +3734,17 @@ app.delete('/api/uploads/:filename', async (c) => {
 });
 
   // Return the app and services
-  return { app, api, syncService, autoExportService, inboxService, broadcaster, storageBackend, projectsService };
+  return {
+    app,
+    api,
+    syncService,
+    autoExportService,
+    projectSyncCoordinator,
+    inboxService,
+    broadcaster,
+    storageBackend,
+    projectsService,
+  };
 }
 
 // ============================================================================

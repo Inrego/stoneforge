@@ -49,3 +49,12 @@ export { SyncService, createSyncService } from './service.js';
 
 // Auto Export Service
 export { AutoExportService, createAutoExportService, type AutoExportOptions } from './auto-export.js';
+
+// Project-scoped sync coordinator
+export {
+  ProjectSyncCoordinator,
+  createProjectSyncCoordinator,
+  PROJECT_SYNC_DIRNAME,
+  type ProjectSyncCoordinatorOptions,
+  type AutoExportFactory,
+} from './project-coordinator.js';

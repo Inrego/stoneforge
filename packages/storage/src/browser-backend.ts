@@ -31,7 +31,7 @@ import type {
   DirtyTrackingOptions,
   SqlitePragmas,
 } from './types.js';
-import { DEFAULT_PRAGMAS } from './types.js';
+import { DEFAULT_PRAGMAS, buildDirtyElementsQuery } from './types.js';
 import { connectionError, mapStorageError, migrationError } from './errors.js';
 
 // ============================================================================
@@ -729,21 +729,28 @@ export class BrowserStorageBackend implements StorageBackend {
     }
   }
 
-  getDirtyElements(_options?: DirtyTrackingOptions): DirtyElement[] {
+  getDirtyElements(options?: DirtyTrackingOptions): DirtyElement[] {
     try {
       const db = this.ensureOpen();
-      const result = db.exec(
-        'SELECT element_id, marked_at FROM dirty_elements ORDER BY marked_at'
-      );
+      const query = buildDirtyElementsQuery(options);
+      const stmt = db.prepare(query.sql);
 
-      if (result.length === 0 || result[0].values.length === 0) {
-        return [];
+      try {
+        if (query.params.length > 0) {
+          stmt.bind(query.params as (number | string | Uint8Array | null)[]);
+        }
+        const out: DirtyElement[] = [];
+        while (stmt.step()) {
+          const row = stmt.getAsObject() as { element_id: string; marked_at: string };
+          out.push({
+            elementId: row.element_id as DirtyElement['elementId'],
+            markedAt: row.marked_at,
+          });
+        }
+        return out;
+      } finally {
+        stmt.free();
       }
-
-      return result[0].values.map(row => ({
-        elementId: row[0] as DirtyElement['elementId'],
-        markedAt: row[1] as string,
-      }));
     } catch (error) {
       throw mapStorageError(error, { operation: 'getDirtyElements' });
     }

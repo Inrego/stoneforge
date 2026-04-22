@@ -24,7 +24,7 @@ export type {
   MigrationResult,
 } from './types.js';
 
-export { DEFAULT_PRAGMAS } from './types.js';
+export { DEFAULT_PRAGMAS, buildDirtyElementsQuery } from './types.js';
 
 // Backend interface
 export type {

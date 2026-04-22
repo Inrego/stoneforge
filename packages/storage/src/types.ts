@@ -178,6 +178,63 @@ export interface DirtyElement {
 export interface DirtyTrackingOptions {
   /** Whether to include element deletions */
   includeDeleted?: boolean;
+  /**
+   * Restrict dirty elements to a project scope:
+   *   - `undefined` — no scope filter (all dirty elements, legacy behavior)
+   *   - a string    — only dirty elements whose `project_id` matches
+   *   - `null`      — only dirty elements with no project (`project_id IS NULL`)
+   *
+   * Used by per-project sync streams so one project's incremental export
+   * does not clear another project's dirty markers.
+   */
+  projectId?: string | null;
+}
+
+/**
+ * Build a SQL query for `getDirtyElements` honoring {@link DirtyTrackingOptions}.
+ *
+ * Shared between backend implementations to keep the filter semantics
+ * identical across runtimes.
+ *
+ * The base query reads from `dirty_elements`. When a `projectId` filter is
+ * set, the query joins `elements` on `element_id = id` and filters by
+ * `elements.project_id`. This is why dirty records whose underlying element
+ * no longer exists (race between delete + poll) are silently dropped under a
+ * project filter — they cannot be attributed to any project.
+ */
+export function buildDirtyElementsQuery(
+  options?: DirtyTrackingOptions
+): { sql: string; params: unknown[] } {
+  const projectId = options?.projectId;
+
+  if (projectId === undefined) {
+    return {
+      sql: 'SELECT element_id, marked_at FROM dirty_elements ORDER BY marked_at',
+      params: [],
+    };
+  }
+
+  if (projectId === null) {
+    return {
+      sql:
+        'SELECT d.element_id AS element_id, d.marked_at AS marked_at ' +
+        'FROM dirty_elements d ' +
+        'INNER JOIN elements e ON e.id = d.element_id ' +
+        'WHERE e.project_id IS NULL ' +
+        'ORDER BY d.marked_at',
+      params: [],
+    };
+  }
+
+  return {
+    sql:
+      'SELECT d.element_id AS element_id, d.marked_at AS marked_at ' +
+      'FROM dirty_elements d ' +
+      'INNER JOIN elements e ON e.id = d.element_id ' +
+      'WHERE e.project_id = ? ' +
+      'ORDER BY d.marked_at',
+    params: [projectId],
+  };
 }
 
 // ============================================================================
