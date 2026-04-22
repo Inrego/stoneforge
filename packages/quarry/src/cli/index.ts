@@ -45,6 +45,7 @@ export { messageCommand } from './commands/message.js';
 export { completionCommand } from './commands/completion.js';
 export { aliasCommand } from './commands/alias.js';
 export { serveCommand } from './commands/serve.js';
+export { projectCommand } from './commands/project.js';
 
 // Completion
 export { generateCompletion, generateBashCompletion, generateZshCompletion, generateFishCompletion, getInstallInstructions, type ShellType } from './completion.js';
