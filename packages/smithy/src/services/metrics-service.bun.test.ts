@@ -6,27 +6,40 @@
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
-import { createStorage, initializeSchema } from '@stoneforge/storage';
+import { createStorage, initializeSchema, type StorageBackend } from '@stoneforge/storage';
 import {
   createMetricsService,
+  UNASSIGNED_PROJECT_GROUP,
   type MetricsService,
   type RecordMetricInput,
 } from './metrics-service.js';
 
 describe('MetricsService', () => {
   let service: MetricsService;
+  let storage: StorageBackend;
   let testDbPath: string;
 
   beforeEach(() => {
     testDbPath = `/tmp/metrics-service-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
-    const storage = createStorage({ path: testDbPath });
+    storage = createStorage({ path: testDbPath });
     initializeSchema(storage);
     service = createMetricsService(storage);
   });
 
   afterEach(() => {
+    // Release the SQLite handle before unlinking — on Windows the file stays
+    // locked even briefly after close(), so we swallow EBUSY on cleanup to
+    // avoid masking the actual test assertions. Leftover temp files are
+    // harmless; the OS will reclaim them.
+    if (storage.isOpen) {
+      storage.close();
+    }
     if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
+      try {
+        fs.unlinkSync(testDbPath);
+      } catch {
+        // Ignore — Windows occasionally holds the file briefly after close()
+      }
     }
   });
 
@@ -777,6 +790,225 @@ describe('MetricsService', () => {
       expect(result[0].sessionCount).toBe(4);
       expect(result[0].failedCount).toBe(1);
       expect(result[0].rateLimitedCount).toBe(1);
+    });
+  });
+
+  // ========================================================================
+  // Per-project aggregation
+  // ========================================================================
+
+  describe('projectId attribution', () => {
+    test('record() persists projectId and aggregateByProject surfaces it', () => {
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-p1',
+        projectId: 'el-proj1',
+        inputTokens: 1000,
+        outputTokens: 500,
+        durationMs: 5000,
+        outcome: 'completed',
+      });
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-p2',
+        projectId: 'el-proj2',
+        inputTokens: 2000,
+        outputTokens: 1000,
+        durationMs: 8000,
+        outcome: 'completed',
+      });
+
+      const byProject = service.aggregateByProject({ days: 7 });
+      expect(byProject).toHaveLength(2);
+      // Highest-token project comes first (token-desc order)
+      expect(byProject[0].group).toBe('el-proj2');
+      expect(byProject[0].totalTokens).toBe(3000);
+      expect(byProject[1].group).toBe('el-proj1');
+      expect(byProject[1].totalTokens).toBe(1500);
+    });
+
+    test('aggregateByProject buckets NULL project_id as "unassigned"', () => {
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-known',
+        projectId: 'el-proj1',
+        inputTokens: 100,
+        outputTokens: 50,
+        durationMs: 1000,
+        outcome: 'completed',
+      });
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-orphan',
+        inputTokens: 200,
+        outputTokens: 100,
+        durationMs: 1000,
+        outcome: 'completed',
+      });
+
+      const byProject = service.aggregateByProject({ days: 7 });
+      const groups = byProject.map(r => r.group).sort();
+      expect(groups).toEqual([UNASSIGNED_PROJECT_GROUP, 'el-proj1'].sort());
+      const unassigned = byProject.find(r => r.group === UNASSIGNED_PROJECT_GROUP);
+      expect(unassigned!.totalTokens).toBe(300);
+    });
+
+    test('aggregateByProvider honors projectId filter', () => {
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-p1',
+        projectId: 'el-proj1',
+        inputTokens: 1000,
+        outputTokens: 500,
+        durationMs: 5000,
+        outcome: 'completed',
+      });
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-p2',
+        projectId: 'el-proj2',
+        inputTokens: 5000,
+        outputTokens: 2000,
+        durationMs: 10000,
+        outcome: 'completed',
+      });
+
+      const scoped = service.aggregateByProvider({ days: 7 }, { projectId: 'el-proj1' });
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0].totalInputTokens).toBe(1000);
+      expect(scoped[0].totalOutputTokens).toBe(500);
+      expect(scoped[0].sessionCount).toBe(1);
+    });
+
+    test('aggregateByProvider with projectId=null returns only unassigned rows', () => {
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-assigned',
+        projectId: 'el-proj1',
+        inputTokens: 1000,
+        outputTokens: 500,
+        durationMs: 5000,
+        outcome: 'completed',
+      });
+      service.record({
+        provider: 'claude-code',
+        sessionId: 'session-unassigned',
+        inputTokens: 400,
+        outputTokens: 200,
+        durationMs: 2000,
+        outcome: 'completed',
+      });
+
+      const scoped = service.aggregateByProvider({ days: 7 }, { projectId: null });
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0].totalInputTokens).toBe(400);
+      expect(scoped[0].sessionCount).toBe(1);
+    });
+
+    test('aggregateByModel honors projectId filter', () => {
+      service.record({
+        provider: 'claude-code',
+        model: 'claude-sonnet-4',
+        sessionId: 's1',
+        projectId: 'el-proj1',
+        inputTokens: 1000,
+        outputTokens: 500,
+        durationMs: 5000,
+        outcome: 'completed',
+      });
+      service.record({
+        provider: 'claude-code',
+        model: 'claude-sonnet-4',
+        sessionId: 's2',
+        projectId: 'el-proj2',
+        inputTokens: 9000,
+        outputTokens: 4000,
+        durationMs: 10000,
+        outcome: 'completed',
+      });
+
+      const scoped = service.aggregateByModel({ days: 7 }, { projectId: 'el-proj1' });
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0].group).toBe('claude-sonnet-4');
+      expect(scoped[0].totalInputTokens).toBe(1000);
+    });
+
+    test('getTimeSeries honors projectId filter', () => {
+      service.record({
+        provider: 'claude-code',
+        sessionId: 's1',
+        projectId: 'el-proj1',
+        inputTokens: 1000,
+        outputTokens: 500,
+        durationMs: 5000,
+        outcome: 'completed',
+      });
+      service.record({
+        provider: 'claude-code',
+        sessionId: 's2',
+        projectId: 'el-proj2',
+        inputTokens: 9000,
+        outputTokens: 4000,
+        durationMs: 10000,
+        outcome: 'completed',
+      });
+
+      const scoped = service.getTimeSeries({ days: 7 }, 'provider', { projectId: 'el-proj1' });
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0].totalInputTokens).toBe(1000);
+    });
+
+    test('upsert preserves existing projectId when later event lacks one', () => {
+      // Initial upsert with projectId
+      service.upsert({
+        provider: 'claude-code',
+        sessionId: 'session-upsert-proj',
+        projectId: 'el-proj1',
+        inputTokens: 500,
+        outputTokens: 250,
+        durationMs: 2000,
+        outcome: 'completed',
+      });
+
+      // Later upsert without projectId — must NOT clobber it to NULL
+      service.upsert({
+        provider: 'claude-code',
+        sessionId: 'session-upsert-proj',
+        inputTokens: 1500,
+        outputTokens: 750,
+        durationMs: 6000,
+        outcome: 'completed',
+      });
+
+      const scoped = service.aggregateByProvider({ days: 7 }, { projectId: 'el-proj1' });
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0].sessionCount).toBe(1);
+      expect(scoped[0].totalInputTokens).toBe(1500);
+    });
+
+    test('upsert backfills projectId when first event had none', () => {
+      service.upsert({
+        provider: 'claude-code',
+        sessionId: 'session-backfill',
+        inputTokens: 500,
+        outputTokens: 250,
+        durationMs: 2000,
+        outcome: 'completed',
+      });
+
+      service.upsert({
+        provider: 'claude-code',
+        sessionId: 'session-backfill',
+        projectId: 'el-proj2',
+        inputTokens: 1000,
+        outputTokens: 500,
+        durationMs: 4000,
+        outcome: 'completed',
+      });
+
+      const scoped = service.aggregateByProvider({ days: 7 }, { projectId: 'el-proj2' });
+      expect(scoped).toHaveLength(1);
+      expect(scoped[0].sessionCount).toBe(1);
     });
   });
 });

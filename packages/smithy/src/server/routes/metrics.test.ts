@@ -30,6 +30,34 @@ function createMockServices() {
         rateLimitedCount: 0,
       },
     ]),
+    aggregateByProject: vi.fn().mockReturnValue([
+      {
+        group: 'el-proj1',
+        totalInputTokens: 7000,
+        totalOutputTokens: 3000,
+        totalCacheReadTokens: 2000,
+        totalCacheCreationTokens: 400,
+        totalTokens: 10000,
+        sessionCount: 6,
+        avgDurationMs: 5000,
+        errorRate: 0,
+        failedCount: 0,
+        rateLimitedCount: 0,
+      },
+      {
+        group: 'unassigned',
+        totalInputTokens: 3000,
+        totalOutputTokens: 2000,
+        totalCacheReadTokens: 1000,
+        totalCacheCreationTokens: 100,
+        totalTokens: 5000,
+        sessionCount: 4,
+        avgDurationMs: 4500,
+        errorRate: 0.25,
+        failedCount: 1,
+        rateLimitedCount: 0,
+      },
+    ]),
     aggregateByModel: vi.fn().mockReturnValue([
       {
         group: 'claude-sonnet-4',
@@ -151,7 +179,7 @@ describe('GET /api/provider-metrics', () => {
     expect(body.metrics[0].group).toBe('claude-code');
     expect(body.timeSeries).toBeUndefined();
 
-    expect(services.metricsService.aggregateByProvider).toHaveBeenCalledWith({ days: 7 });
+    expect(services.metricsService.aggregateByProvider).toHaveBeenCalledWith({ days: 7 }, undefined);
   });
 
   it('accepts timeRange parameter', async () => {
@@ -162,7 +190,7 @@ describe('GET /api/provider-metrics', () => {
     const body = await res.json();
     expect(body.timeRange).toEqual({ days: 30, label: '30d' });
 
-    expect(services.metricsService.aggregateByProvider).toHaveBeenCalledWith({ days: 30 });
+    expect(services.metricsService.aggregateByProvider).toHaveBeenCalledWith({ days: 30 }, undefined);
   });
 
   it('accepts groupBy=model parameter', async () => {
@@ -174,7 +202,7 @@ describe('GET /api/provider-metrics', () => {
     expect(body.groupBy).toBe('model');
     expect(body.metrics[0].group).toBe('claude-sonnet-4');
 
-    expect(services.metricsService.aggregateByModel).toHaveBeenCalledWith({ days: 7 });
+    expect(services.metricsService.aggregateByModel).toHaveBeenCalledWith({ days: 7 }, undefined);
   });
 
   it('accepts groupBy=agent parameter', async () => {
@@ -192,7 +220,7 @@ describe('GET /api/provider-metrics', () => {
     expect(body.metrics[0].totalDurationMs).toBe(30000);
     expect(body.metrics[1].group).toBe('el-w2');
 
-    expect(services.metricsService.aggregateByAgent).toHaveBeenCalledWith({ days: 7 });
+    expect(services.metricsService.aggregateByAgent).toHaveBeenCalledWith({ days: 7 }, undefined);
   });
 
   it('does not include time series for groupBy=agent', async () => {
@@ -226,7 +254,7 @@ describe('GET /api/provider-metrics', () => {
     expect(body.timeSeries).toHaveLength(1);
     expect(body.timeSeries[0].bucket).toBe('2026-02-22');
 
-    expect(services.metricsService.getTimeSeries).toHaveBeenCalledWith({ days: 7 }, 'provider');
+    expect(services.metricsService.getTimeSeries).toHaveBeenCalledWith({ days: 7 }, 'provider', undefined);
   });
 
   it('does not include time series by default', async () => {
@@ -290,5 +318,106 @@ describe('GET /api/provider-metrics', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.metrics).toHaveLength(0);
+  });
+
+  // ========================================================================
+  // Per-project dimension
+  // ========================================================================
+
+  it('passes projectId filter through to aggregateByProvider', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics?projectId=el-proj1');
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.projectId).toBe('el-proj1');
+
+    expect(services.metricsService.aggregateByProvider).toHaveBeenCalledWith(
+      { days: 7 },
+      { projectId: 'el-proj1' }
+    );
+  });
+
+  it('passes projectId filter through to aggregateByModel', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics?groupBy=model&projectId=el-proj1');
+
+    expect(res.status).toBe(200);
+    expect(services.metricsService.aggregateByModel).toHaveBeenCalledWith(
+      { days: 7 },
+      { projectId: 'el-proj1' }
+    );
+  });
+
+  it('passes projectId filter through to aggregateByAgent', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics?groupBy=agent&projectId=el-proj1');
+
+    expect(res.status).toBe(200);
+    expect(services.metricsService.aggregateByAgent).toHaveBeenCalledWith(
+      { days: 7 },
+      { projectId: 'el-proj1' }
+    );
+  });
+
+  it('translates projectId=unassigned into the null-scope filter', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics?projectId=unassigned');
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.projectId).toBeNull();
+
+    expect(services.metricsService.aggregateByProvider).toHaveBeenCalledWith(
+      { days: 7 },
+      { projectId: null }
+    );
+  });
+
+  it('accepts groupBy=project and returns per-project rows', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics?groupBy=project');
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.groupBy).toBe('project');
+    expect(body.metrics).toHaveLength(2);
+    expect(body.metrics[0].group).toBe('el-proj1');
+    expect(body.metrics[1].group).toBe('unassigned');
+
+    expect(services.metricsService.aggregateByProject).toHaveBeenCalledWith({ days: 7 });
+    // The projectId filter does not apply to the cross-project totals view
+    expect(services.metricsService.aggregateByProvider).not.toHaveBeenCalled();
+  });
+
+  it('groupBy=project ignores the projectId filter to avoid collapsing the view', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics?groupBy=project&projectId=el-proj1');
+
+    expect(res.status).toBe(200);
+    // aggregateByProject is called without a filter argument — the cross-project
+    // totals view always spans everything.
+    expect(services.metricsService.aggregateByProject).toHaveBeenCalledWith({ days: 7 });
+  });
+
+  it('passes projectId filter through to getTimeSeries when includeSeries=true', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics?includeSeries=true&projectId=el-proj1');
+
+    expect(res.status).toBe(200);
+    expect(services.metricsService.getTimeSeries).toHaveBeenCalledWith(
+      { days: 7 },
+      'provider',
+      { projectId: 'el-proj1' }
+    );
+  });
+
+  it('omits projectId from response body when filter is not set', async () => {
+    const app = createMetricsRoutes(services);
+    const res = await app.request('/api/provider-metrics');
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).not.toHaveProperty('projectId');
   });
 });

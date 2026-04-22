@@ -9,6 +9,23 @@ export interface TimeSeriesPoint {
 
 export type TimeRange = '7d' | '14d' | '30d'
 
+// ── Projects ──
+/**
+ * Lightweight project descriptor used by the per-project filter and the
+ * cross-project totals view. The `id` matches the `projectId` stamped onto
+ * MetricsTask rows; `null` as a selected project id means "all projects".
+ */
+export interface MetricsProject {
+  id: string
+  name: string
+}
+
+/**
+ * Currently selected project scope. `null` means "all projects" and is the
+ * default cross-project totals view.
+ */
+export type ProjectScope = string | null
+
 // ── Tasks with metrics fields ──
 export interface MetricsTask {
   id: string
@@ -18,6 +35,12 @@ export interface MetricsTask {
   assignee?: string
   model: string
   provider: string
+  /**
+   * Owning project id. Aligns with the server-side `project_id` column on
+   * provider_metrics so the UI can filter by the same dimension that the API
+   * aggregates over.
+   */
+  projectId: string
   createdAt: number   // ms timestamp
   completedAt?: number
   cycleTimeHours?: number
@@ -148,4 +171,21 @@ export interface UsageInsightCard {
   label: string
   value: string
   subtitle: string
+}
+
+// ── Per-project aggregates (cross-project totals view) ──
+/**
+ * Rolled-up metrics for a single project across the selected time range.
+ * Used by the cross-project totals view on the Overview tab so operators can
+ * compare spend and throughput between projects at a glance.
+ */
+export interface ProjectMetrics {
+  projectId: string
+  projectName: string
+  tasksCompleted: number
+  mrsMerged: number
+  sessionsCount: number
+  totalCost: number
+  totalTokens: number
+  avgCycleTimeHours: number
 }

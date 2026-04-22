@@ -1,8 +1,8 @@
 import { useMemo } from 'react'
-import type { TimeRange, LayoutSize } from './metrics-types'
+import type { TimeRange, LayoutSize, ProjectScope } from './metrics-types'
 import {
   mockMetricsTasks, reopenRateSeries, ciPassRateSeries,
-  computeAgentPerformance, filterSeries, computeTrend,
+  computeAgentPerformance, filterSeries, computeTrend, filterByProject,
 } from './metrics-mock-data'
 import { Sparkline, AreaChart, HorizontalBar, TrendBadge } from './MetricsCharts'
 import { ShieldCheck, RotateCcw, GitMerge, ArrowLeftRight } from 'lucide-react'
@@ -16,11 +16,16 @@ const cell: React.CSSProperties = { fontSize: 13, color: 'var(--color-text)', fo
 interface MetricsQualityTabProps {
   timeRange: TimeRange
   layout: LayoutSize
+  /** Per-project filter. `null` spans all projects. */
+  projectScope: ProjectScope
   onNavigateToTask?: (taskId: string) => void
 }
 
-export function MetricsQualityTab({ timeRange, layout, onNavigateToTask }: MetricsQualityTabProps) {
-  const tasks = mockMetricsTasks
+export function MetricsQualityTab({ timeRange, layout, projectScope, onNavigateToTask }: MetricsQualityTabProps) {
+  // All the quality rollups below derive from the task pool, so we narrow it
+  // once at the top to honor the active project filter. Memoized so switching
+  // project scope is a single re-render.
+  const tasks = useMemo(() => filterByProject(mockMetricsTasks, projectScope), [projectScope])
   const completedTasks = tasks.filter(t => t.status === 'done')
   const ciFirstPass = completedTasks.length > 0
     ? completedTasks.filter(t => t.ciPassOnFirstAttempt).length / completedTasks.length : 0
@@ -48,9 +53,9 @@ export function MetricsQualityTab({ timeRange, layout, onNavigateToTask }: Metri
     const dist = [0, 0, 0, 0]
     tasks.forEach(t => { const h = t.handoffHistory.length; dist[h >= 3 ? 3 : h]++ })
     return dist
-  }, [])
+  }, [tasks])
 
-  const agentPerf = useMemo(() => computeAgentPerformance(tasks, timeRange), [timeRange])
+  const agentPerf = useMemo(() => computeAgentPerformance(tasks, timeRange), [tasks, timeRange])
   const agentRework = useMemo(() => {
     return agentPerf.map(a => {
       const agentTasks = tasks.filter(t => t.assignee === a.agentName)
@@ -63,14 +68,14 @@ export function MetricsQualityTab({ timeRange, layout, onNavigateToTask }: Metri
         stewardRecoveries: agentTasks.reduce((s, t) => s + t.stewardRecoveryCount, 0),
       }
     })
-  }, [agentPerf])
+  }, [agentPerf, tasks])
 
   const topRework = useMemo(() => {
     return [...tasks]
       .map(t => ({ ...t, reworkScore: t.handoffHistory.length * 3 + t.testRunCount + t.reconciliationCount + t.resumeCount }))
       .sort((a, b) => b.reworkScore - a.reworkScore)
       .slice(0, 8)
-  }, [])
+  }, [tasks])
 
   const maxHandoff = Math.max(...handoffDist, 1)
 

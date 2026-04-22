@@ -14,7 +14,7 @@ import type { Migration, MigrationResult, StorageBackend } from './index.js';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 // ============================================================================
 // Migrations
@@ -648,9 +648,40 @@ CREATE INDEX idx_elements_deleted_at ON elements(deleted_at);
 };
 
 /**
+ * Migration 14: Add project_id column to provider_metrics for per-project aggregation
+ *
+ * Extends multi-project support into the observability layer:
+ * - Adds a nullable project_id column so each recorded provider metric can be
+ *   attributed to a specific project (derived from the owning task when
+ *   available).
+ * - Adds an index on (project_id, timestamp) for efficient per-project
+ *   time-bounded aggregation queries.
+ *
+ * project_id is nullable: historical rows recorded before this migration, and
+ * new rows recorded for sessions without a resolvable project (e.g., standalone
+ * agent sessions or tasks with no project assignment), remain unassigned.
+ */
+const migration014: Migration = {
+  version: 14,
+  description: 'Add project_id column to provider_metrics for per-project aggregation',
+  up: `
+-- Add nullable project_id column to provider_metrics
+ALTER TABLE provider_metrics ADD COLUMN project_id TEXT;
+
+-- Composite index for per-project time-bounded queries
+CREATE INDEX idx_provider_metrics_project_timestamp ON provider_metrics(project_id, timestamp);
+`,
+  down: `
+-- Drop index first, then column (SQLite 3.35.0+ supports DROP COLUMN)
+DROP INDEX IF EXISTS idx_provider_metrics_project_timestamp;
+ALTER TABLE provider_metrics DROP COLUMN project_id;
+`,
+};
+
+/**
  * All migrations in order
  */
-export const MIGRATIONS: readonly Migration[] = [migration001, migration002, migration003, migration004, migration005, migration006, migration007, migration008, migration009, migration010, migration011, migration012, migration013];
+export const MIGRATIONS: readonly Migration[] = [migration001, migration002, migration003, migration004, migration005, migration006, migration007, migration008, migration009, migration010, migration011, migration012, migration013, migration014];
 
 // ============================================================================
 // Schema Functions

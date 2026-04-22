@@ -346,21 +346,36 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
       let sessionCacheCreationTokens = 0;
       let sessionModel: string | undefined;
 
-      // Resolved task ID cache (looked up once, reused for all upserts)
+      // Resolved task assignment cache (looked up once, reused for all upserts).
+      // We cache both the task id and the owning project id so per-project
+      // aggregation has the same attribution as task-scoped queries.
       let resolvedTaskId: string | undefined;
+      let resolvedProjectId: string | undefined;
       let taskIdResolved = false;
 
-      // Helper to resolve the task ID once and cache it
-      const resolveTaskId = async (): Promise<string | undefined> => {
-        if (taskIdResolved) return resolvedTaskId;
+      // Helper to resolve the task assignment once and cache it. Returns the
+      // full { taskId, projectId } pair; projectId is undefined when the task
+      // has no project assignment (legacy rows) or when lookup fails.
+      const resolveTaskAssignment = async (): Promise<{
+        taskId: string | undefined;
+        projectId: string | undefined;
+      }> => {
+        if (taskIdResolved) {
+          return { taskId: resolvedTaskId, projectId: resolvedProjectId };
+        }
         try {
           const tasks = await taskAssignmentService.getAgentTasks(agentId);
-          resolvedTaskId = tasks.length > 0 ? tasks[0].taskId : undefined;
+          if (tasks.length > 0) {
+            resolvedTaskId = tasks[0].taskId;
+            // `projectId` is optional on Element; coerce undefined through to
+            // keep the metrics call shape consistent with "not resolved".
+            resolvedProjectId = tasks[0].task.projectId ?? undefined;
+          }
         } catch {
-          // If task lookup fails, leave undefined
+          // If task lookup fails, leave both undefined
         }
         taskIdResolved = true;
-        return resolvedTaskId;
+        return { taskId: resolvedTaskId, projectId: resolvedProjectId };
       };
 
       // Helper to upsert metrics incrementally (called on each assistant event)
@@ -368,12 +383,13 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
         const durationMs = Date.now() - sessionStartTime;
         const provider = 'claude-code';
 
-        resolveTaskId().then(taskId => {
+        resolveTaskAssignment().then(({ taskId, projectId }) => {
           metricsService.upsert({
             provider,
             model: sessionModel,
             sessionId: session.id,
             taskId,
+            projectId,
             inputTokens: sessionInputTokens,
             outputTokens: sessionOutputTokens,
             cacheReadTokens: sessionCacheReadTokens,
@@ -382,7 +398,7 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
             outcome: sessionOutcome,
           });
         }).catch(() => {
-          // Best-effort: upsert without task ID
+          // Best-effort: upsert without task/project attribution
           metricsService.upsert({
             provider,
             model: sessionModel,

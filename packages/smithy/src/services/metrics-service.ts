@@ -28,6 +28,15 @@ export interface RecordMetricInput {
   model?: string;
   sessionId: string;
   taskId?: string;
+  /**
+   * Optional owning project for this metric.
+   *
+   * Derived from the task's `projectId` when available. Left unset for
+   * sessions without a resolvable project (e.g., standalone agent sessions,
+   * tasks with no project assignment). Persisted in the `project_id` column
+   * and surfaced as the sentinel group "unassigned" by {@link aggregateByProject}.
+   */
+  projectId?: string;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;
@@ -43,6 +52,28 @@ export interface TimeRange {
   /** Number of days to look back (e.g., 7, 14, 30) */
   days: number;
 }
+
+/**
+ * Optional filter applied to aggregation queries.
+ *
+ * All aggregate and time-series queries accept this to narrow the result set
+ * down to a specific project. When omitted the query spans all projects
+ * (including metrics with `project_id IS NULL`).
+ *
+ * - `projectId: string` — restrict to that exact project id.
+ * - `projectId: null`   — restrict to metrics with no project assignment.
+ * - `projectId: undefined` / filter omitted — span everything.
+ */
+export interface MetricsFilter {
+  projectId?: string | null;
+}
+
+/**
+ * Sentinel value used as the group key for metrics without a project
+ * assignment. Mirrors the "unknown" sentinel used by model grouping so UIs
+ * can render a stable label without leaking SQL NULLs.
+ */
+export const UNASSIGNED_PROJECT_GROUP = 'unassigned';
 
 /**
  * Aggregated metrics for a group (provider or model)
@@ -103,6 +134,7 @@ interface DbMetricRow {
   model: string | null;
   session_id: string;
   task_id: string | null;
+  project_id: string | null;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -160,19 +192,31 @@ export interface MetricsService {
   upsert(input: RecordMetricInput): void;
 
   /**
-   * Get aggregated metrics grouped by provider
+   * Get aggregated metrics grouped by provider.
+   *
+   * Pass `filter.projectId` to scope results to a single project (or `null`
+   * to scope to metrics without a project assignment).
    */
-  aggregateByProvider(timeRange: TimeRange): AggregatedMetrics[];
+  aggregateByProvider(timeRange: TimeRange, filter?: MetricsFilter): AggregatedMetrics[];
 
   /**
    * Get aggregated metrics grouped by model
    */
-  aggregateByModel(timeRange: TimeRange): AggregatedMetrics[];
+  aggregateByModel(timeRange: TimeRange, filter?: MetricsFilter): AggregatedMetrics[];
 
   /**
    * Get aggregated metrics grouped by agent (via session_id → agent_id mapping)
    */
-  aggregateByAgent(timeRange: TimeRange): AggregatedMetrics[];
+  aggregateByAgent(timeRange: TimeRange, filter?: MetricsFilter): AggregatedMetrics[];
+
+  /**
+   * Get aggregated metrics grouped by owning project.
+   *
+   * Unassigned rows (project_id IS NULL) are bucketed under the
+   * {@link UNASSIGNED_PROJECT_GROUP} sentinel so the UI can render them
+   * alongside project-scoped rows without leaking SQL NULLs.
+   */
+  aggregateByProject(timeRange: TimeRange): AggregatedMetrics[];
 
   /**
    * Get metrics for a specific session ID.
@@ -183,7 +227,11 @@ export interface MetricsService {
   /**
    * Get time-series data for trend charts
    */
-  getTimeSeries(timeRange: TimeRange, groupBy: 'provider' | 'model'): TimeSeriesPoint[];
+  getTimeSeries(
+    timeRange: TimeRange,
+    groupBy: 'provider' | 'model',
+    filter?: MetricsFilter
+  ): TimeSeriesPoint[];
 }
 
 // ============================================================================
@@ -219,6 +267,25 @@ function getTimeBucketExpression(timeRange: TimeRange): string {
   }
 }
 
+/**
+ * Build the WHERE fragment and parameter list that narrows a query to the
+ * supplied {@link MetricsFilter}. Column aliases are passed in so the same
+ * helper works for both unqualified queries and joined queries (e.g. the
+ * agent aggregation aliases `provider_metrics` as `pm`).
+ */
+function buildProjectFilter(
+  filter: MetricsFilter | undefined,
+  projectColumn: string
+): { clause: string; params: unknown[] } {
+  if (!filter || filter.projectId === undefined) {
+    return { clause: '', params: [] };
+  }
+  if (filter.projectId === null) {
+    return { clause: ` AND ${projectColumn} IS NULL`, params: [] };
+  }
+  return { clause: ` AND ${projectColumn} = ?`, params: [filter.projectId] };
+}
+
 // ============================================================================
 // Implementation
 // ============================================================================
@@ -231,8 +298,8 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
 
       try {
         storage.run(
-          `INSERT INTO provider_metrics (id, timestamp, provider, model, session_id, task_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, duration_ms, outcome)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO provider_metrics (id, timestamp, provider, model, session_id, task_id, project_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, duration_ms, outcome)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             id,
             timestamp,
@@ -240,6 +307,7 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
             input.model ?? null,
             input.sessionId,
             input.taskId ?? null,
+            input.projectId ?? null,
             input.inputTokens,
             input.outputTokens,
             input.cacheReadTokens ?? 0,
@@ -259,7 +327,7 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
       try {
         // Check if a row already exists for this session
         const existing = storage.query<DbMetricRow>(
-          `SELECT id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM provider_metrics WHERE session_id = ? LIMIT 1`,
+          `SELECT id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, project_id FROM provider_metrics WHERE session_id = ? LIMIT 1`,
           [input.sessionId]
         );
 
@@ -271,11 +339,16 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
           const newCacheReadTokens = Math.max(Number(row.cache_read_tokens), input.cacheReadTokens ?? 0);
           const newCacheCreationTokens = Math.max(Number(row.cache_creation_tokens), input.cacheCreationTokens ?? 0);
 
+          // Preserve the existing project_id when the current upsert doesn't
+          // carry one (mirrors the COALESCE(model) behavior below): later
+          // upserts should be able to backfill a project, but an unresolved
+          // projectId on a late event shouldn't clobber an earlier resolution.
           storage.run(
             `UPDATE provider_metrics
              SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?,
                  duration_ms = ?, outcome = ?,
-                 model = COALESCE(?, model)
+                 model = COALESCE(?, model),
+                 project_id = COALESCE(?, project_id)
              WHERE id = ?`,
             [
               newInputTokens,
@@ -285,6 +358,7 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
               input.durationMs,
               input.outcome,
               input.model ?? null,
+              input.projectId ?? null,
               row.id,
             ]
           );
@@ -296,8 +370,8 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
           const timestamp = new Date().toISOString();
 
           storage.run(
-            `INSERT INTO provider_metrics (id, timestamp, provider, model, session_id, task_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, duration_ms, outcome)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO provider_metrics (id, timestamp, provider, model, session_id, task_id, project_id, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, duration_ms, outcome)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               id,
               timestamp,
@@ -305,6 +379,7 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
               input.model ?? null,
               input.sessionId,
               input.taskId ?? null,
+              input.projectId ?? null,
               input.inputTokens,
               input.outputTokens,
               input.cacheReadTokens ?? 0,
@@ -321,8 +396,9 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
       }
     },
 
-    aggregateByProvider(timeRange: TimeRange): AggregatedMetrics[] {
+    aggregateByProvider(timeRange: TimeRange, filter?: MetricsFilter): AggregatedMetrics[] {
       const cutoff = getTimeCutoff(timeRange);
+      const project = buildProjectFilter(filter, 'project_id');
 
       const rows = storage.query<DbAggregateRow>(
         `SELECT
@@ -336,10 +412,10 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
            COALESCE(SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END), 0) AS failed_count,
            COALESCE(SUM(CASE WHEN outcome = 'rate_limited' THEN 1 ELSE 0 END), 0) AS rate_limited_count
          FROM provider_metrics
-         WHERE timestamp >= ?
+         WHERE timestamp >= ?${project.clause}
          GROUP BY provider
          ORDER BY total_input_tokens + total_output_tokens DESC`,
-        [cutoff]
+        [cutoff, ...project.params]
       );
 
       return rows.map(row => ({
@@ -359,8 +435,9 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
       }));
     },
 
-    aggregateByModel(timeRange: TimeRange): AggregatedMetrics[] {
+    aggregateByModel(timeRange: TimeRange, filter?: MetricsFilter): AggregatedMetrics[] {
       const cutoff = getTimeCutoff(timeRange);
+      const project = buildProjectFilter(filter, 'project_id');
 
       const rows = storage.query<DbAggregateRow>(
         `SELECT
@@ -374,10 +451,10 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
            COALESCE(SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END), 0) AS failed_count,
            COALESCE(SUM(CASE WHEN outcome = 'rate_limited' THEN 1 ELSE 0 END), 0) AS rate_limited_count
          FROM provider_metrics
-         WHERE timestamp >= ?
+         WHERE timestamp >= ?${project.clause}
          GROUP BY COALESCE(model, 'unknown')
          ORDER BY total_input_tokens + total_output_tokens DESC`,
-        [cutoff]
+        [cutoff, ...project.params]
       );
 
       return rows.map(row => ({
@@ -397,8 +474,10 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
       }));
     },
 
-    aggregateByAgent(timeRange: TimeRange): AggregatedMetrics[] {
+    aggregateByAgent(timeRange: TimeRange, filter?: MetricsFilter): AggregatedMetrics[] {
       const cutoff = getTimeCutoff(timeRange);
+      // Metrics live on `pm`; the filter is applied before the GROUP BY.
+      const project = buildProjectFilter(filter, 'pm.project_id');
 
       const rows = storage.query<DbAggregateRow & { total_duration_ms: number }>(
         `SELECT
@@ -417,10 +496,10 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
            SELECT DISTINCT session_id, agent_id
            FROM session_messages
          ) sm ON pm.session_id = sm.session_id
-         WHERE pm.timestamp >= ?
+         WHERE pm.timestamp >= ?${project.clause}
          GROUP BY sm.agent_id
          ORDER BY total_input_tokens + total_output_tokens DESC`,
-        [cutoff]
+        [cutoff, ...project.params]
       );
 
       return rows.map(row => ({
@@ -433,6 +512,47 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
         sessionCount: Number(row.session_count),
         avgDurationMs: Math.round(Number(row.avg_duration_ms)),
         totalDurationMs: Number(row.total_duration_ms),
+        errorRate: Number(row.session_count) > 0
+          ? Number(row.failed_count) / Number(row.session_count)
+          : 0,
+        failedCount: Number(row.failed_count),
+        rateLimitedCount: Number(row.rate_limited_count),
+      }));
+    },
+
+    aggregateByProject(timeRange: TimeRange): AggregatedMetrics[] {
+      const cutoff = getTimeCutoff(timeRange);
+
+      // NULL project_id is coalesced to the UNASSIGNED sentinel so callers see
+      // a single stable group key rather than SQL NULL. Parameter binding is
+      // used for the sentinel to keep the query prepared-statement-friendly.
+      const rows = storage.query<DbAggregateRow>(
+        `SELECT
+           COALESCE(project_id, ?) AS group_key,
+           COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+           COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+           COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+           COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation_tokens,
+           COUNT(*) AS session_count,
+           COALESCE(AVG(duration_ms), 0) AS avg_duration_ms,
+           COALESCE(SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END), 0) AS failed_count,
+           COALESCE(SUM(CASE WHEN outcome = 'rate_limited' THEN 1 ELSE 0 END), 0) AS rate_limited_count
+         FROM provider_metrics
+         WHERE timestamp >= ?
+         GROUP BY COALESCE(project_id, ?)
+         ORDER BY total_input_tokens + total_output_tokens DESC`,
+        [UNASSIGNED_PROJECT_GROUP, cutoff, UNASSIGNED_PROJECT_GROUP]
+      );
+
+      return rows.map(row => ({
+        group: row.group_key,
+        totalInputTokens: Number(row.total_input_tokens),
+        totalOutputTokens: Number(row.total_output_tokens),
+        totalCacheReadTokens: Number(row.total_cache_read_tokens),
+        totalCacheCreationTokens: Number(row.total_cache_creation_tokens),
+        totalTokens: Number(row.total_input_tokens) + Number(row.total_output_tokens),
+        sessionCount: Number(row.session_count),
+        avgDurationMs: Math.round(Number(row.avg_duration_ms)),
         errorRate: Number(row.session_count) > 0
           ? Number(row.failed_count) / Number(row.session_count)
           : 0,
@@ -484,10 +604,15 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
       }
     },
 
-    getTimeSeries(timeRange: TimeRange, groupBy: 'provider' | 'model'): TimeSeriesPoint[] {
+    getTimeSeries(
+      timeRange: TimeRange,
+      groupBy: 'provider' | 'model',
+      filter?: MetricsFilter
+    ): TimeSeriesPoint[] {
       const cutoff = getTimeCutoff(timeRange);
       const bucketExpr = getTimeBucketExpression(timeRange);
       const groupExpr = groupBy === 'provider' ? 'provider' : "COALESCE(model, 'unknown')";
+      const project = buildProjectFilter(filter, 'project_id');
 
       const rows = storage.query<DbTimeSeriesRow>(
         `SELECT
@@ -498,10 +623,10 @@ export function createMetricsService(storage: StorageBackend): MetricsService {
            COUNT(*) AS session_count,
            COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
          FROM provider_metrics
-         WHERE timestamp >= ?
+         WHERE timestamp >= ?${project.clause}
          GROUP BY bucket, group_key
          ORDER BY bucket ASC, group_key ASC`,
-        [cutoff]
+        [cutoff, ...project.params]
       );
 
       return rows.map(row => ({

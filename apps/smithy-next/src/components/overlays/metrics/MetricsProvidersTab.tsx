@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { TimeRange, LayoutSize, ModelMetrics, Insight } from './metrics-types'
-import { mockMetricsTasks, computeModelMetrics, computeInsights } from './metrics-mock-data'
+import type { TimeRange, LayoutSize, ModelMetrics, Insight, ProjectScope } from './metrics-types'
+import { mockMetricsTasks, computeModelMetrics, computeInsights, filterByProject } from './metrics-mock-data'
 import { HorizontalBar } from './MetricsCharts'
 import { TrendingUp, AlertTriangle, Zap, ArrowUpDown, X } from 'lucide-react'
 
@@ -15,10 +15,16 @@ type SortField = 'tasksCompleted' | 'avgTaskDurationHours' | 'costPerCompletedTa
 interface MetricsProvidersTabProps {
   timeRange: TimeRange
   layout: LayoutSize
+  /** Per-project filter. `null` spans all projects. */
+  projectScope: ProjectScope
 }
 
-export function MetricsProvidersTab({ timeRange, layout }: MetricsProvidersTabProps) {
-  const models = useMemo(() => computeModelMetrics(mockMetricsTasks, timeRange), [timeRange])
+export function MetricsProvidersTab({ timeRange, layout, projectScope }: MetricsProvidersTabProps) {
+  // Narrow the task pool to the selected project before computing per-model
+  // aggregates so every downstream stat (cost, quality, rework) reflects the
+  // active scope.
+  const scopedTasks = useMemo(() => filterByProject(mockMetricsTasks, projectScope), [projectScope])
+  const models = useMemo(() => computeModelMetrics(scopedTasks, timeRange), [scopedTasks, timeRange])
   const insights = useMemo(() => computeInsights(models), [models])
   const [dismissedInsights, setDismissedInsights] = useState<Set<string>>(new Set())
   const [sortField, setSortField] = useState<SortField>('tasksCompleted')

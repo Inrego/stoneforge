@@ -612,6 +612,78 @@ describe('Schema Management', () => {
   });
 
   // ==========================================================================
+  // Provider Metrics Table (migrations 10, 12, 14)
+  // ==========================================================================
+
+  describe('Provider Metrics Table', () => {
+    beforeEach(() => {
+      initializeSchema(backend);
+    });
+
+    it('should expose the full set of columns across all provider_metrics migrations', () => {
+      const columns = getTableColumns(backend, 'provider_metrics');
+      const columnNames = columns.map((c) => c.name);
+
+      // Migration 10
+      expect(columnNames).toContain('id');
+      expect(columnNames).toContain('timestamp');
+      expect(columnNames).toContain('provider');
+      expect(columnNames).toContain('model');
+      expect(columnNames).toContain('session_id');
+      expect(columnNames).toContain('task_id');
+      expect(columnNames).toContain('input_tokens');
+      expect(columnNames).toContain('output_tokens');
+      expect(columnNames).toContain('duration_ms');
+      expect(columnNames).toContain('outcome');
+
+      // Migration 12
+      expect(columnNames).toContain('cache_read_tokens');
+      expect(columnNames).toContain('cache_creation_tokens');
+
+      // Migration 14
+      expect(columnNames).toContain('project_id');
+    });
+
+    it('should have project_id as nullable', () => {
+      const columns = getTableColumns(backend, 'provider_metrics');
+      const projectCol = columns.find((c) => c.name === 'project_id');
+      expect(projectCol).toBeDefined();
+      expect(projectCol!.notnull).toBe(false);
+    });
+
+    it('should have the per-project timestamp index', () => {
+      const indexes = getTableIndexes(backend, 'provider_metrics');
+      expect(indexes).toContain('idx_provider_metrics_project_timestamp');
+    });
+
+    it('should round-trip a row with project_id attached', () => {
+      backend.run(
+        `INSERT INTO provider_metrics
+           (id, timestamp, provider, session_id, input_tokens, output_tokens, duration_ms, outcome, project_id)
+         VALUES ('pm-1', '2026-04-22T00:00:00Z', 'claude-code', 's-1', 100, 50, 1000, 'completed', 'el-proj1')`,
+      );
+
+      const row = backend.query<{ project_id: string | null }>(
+        `SELECT project_id FROM provider_metrics WHERE id = 'pm-1'`,
+      );
+      expect(row[0].project_id).toBe('el-proj1');
+    });
+
+    it('should default project_id to NULL when omitted', () => {
+      backend.run(
+        `INSERT INTO provider_metrics
+           (id, timestamp, provider, session_id, input_tokens, output_tokens, duration_ms, outcome)
+         VALUES ('pm-2', '2026-04-22T00:00:00Z', 'claude-code', 's-2', 100, 50, 1000, 'completed')`,
+      );
+
+      const row = backend.query<{ project_id: string | null }>(
+        `SELECT project_id FROM provider_metrics WHERE id = 'pm-2'`,
+      );
+      expect(row[0].project_id).toBeNull();
+    });
+  });
+
+  // ==========================================================================
   // Schema Reset
   // ==========================================================================
 

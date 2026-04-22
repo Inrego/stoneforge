@@ -1,7 +1,8 @@
 import type {
   MetricsTask, ModelMetrics, AgentPerformance, Bottleneck, Insight,
   TimeSeriesPoint, TimeRange, UsageStats, ActivityDay, AgentTokenSplit,
-  ModelTokenUsage, CodeChurn, UsageInsightCard,
+  ModelTokenUsage, CodeChurn, UsageInsightCard, MetricsProject, ProjectMetrics,
+  ProjectScope,
 } from './metrics-types'
 
 // ── Helpers ──
@@ -13,6 +14,18 @@ const daysAgo = (d: number) => now - d * DAY
 function rand(min: number, max: number) { return min + Math.random() * (max - min) }
 function randInt(min: number, max: number) { return Math.floor(rand(min, max + 1)) }
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)] }
+
+// ── Projects ──
+//
+// Representative project set for the per-project dimension. Ids use the
+// same `el-*` shape as real project elements so the mock values remain
+// drop-in compatible if the overlay is later wired to the live API.
+
+export const mockProjects: MetricsProject[] = [
+  { id: 'el-proj1', name: 'Core Platform' },
+  { id: 'el-proj2', name: 'Web App' },
+  { id: 'el-proj3', name: 'Infrastructure' },
+]
 
 // ── Agents ──
 
@@ -66,6 +79,9 @@ export const mockMetricsTasks: MetricsTask[] = taskTitles.map((title, i) => {
     ? [{ from: agent.name, to: pick(agents.filter(a => a.id !== agent.id)).name, reason: pick(['Complexity escalation', 'Timeout', 'Specialization needed']), timestamp: created + DAY }]
     : []
   const ms = status === 'done' ? pick(mergeStatuses.slice(0, 3)) : pick(mergeStatuses)
+  // Round-robin tasks across the mock projects so every project has
+  // representative data to compare in the cross-project totals view.
+  const projectId = mockProjects[i % mockProjects.length].id
 
   return {
     id: `SF-${100 + i}`,
@@ -75,6 +91,7 @@ export const mockMetricsTasks: MetricsTask[] = taskTitles.map((title, i) => {
     assignee: agent.name,
     model,
     provider: agent.provider,
+    projectId,
     createdAt: created,
     completedAt: completed,
     cycleTimeHours: cycleHours,
@@ -131,6 +148,67 @@ function filterByRange(tasks: MetricsTask[], range: TimeRange): MetricsTask[] {
   const days = range === '7d' ? 7 : range === '14d' ? 14 : 30
   const cutoff = daysAgo(days)
   return tasks.filter(t => t.createdAt >= cutoff)
+}
+
+/**
+ * Narrow a task list to a single project scope.
+ *
+ * `null` is the "all projects" sentinel — returns the input unchanged so
+ * callers can use the same code path for filtered and cross-project views.
+ * Tasks without a `projectId` are never surfaced under a specific project
+ * scope (mirrors the server-side behavior where rows without `project_id`
+ * are the "unassigned" bucket rather than attributed to every project).
+ */
+export function filterByProject(tasks: MetricsTask[], scope: ProjectScope): MetricsTask[] {
+  if (scope === null) return tasks
+  return tasks.filter(t => t.projectId === scope)
+}
+
+/**
+ * Roll up tasks into per-project metrics for the cross-project totals view.
+ *
+ * Produces one row per known project even when a project had zero activity in
+ * the window so the UI can render stable columns. Cost is derived from the
+ * same per-model profile the provider view uses so totals remain consistent
+ * across tabs.
+ */
+export function computeProjectMetrics(
+  tasks: MetricsTask[],
+  range: TimeRange,
+  projects: MetricsProject[] = mockProjects,
+): ProjectMetrics[] {
+  const filtered = filterByRange(tasks, range)
+
+  return projects.map(project => {
+    const projectTasks = filtered.filter(t => t.projectId === project.id)
+    const completed = projectTasks.filter(t => t.status === 'done')
+    const merged = projectTasks.filter(t => t.mergeStatus === 'merged')
+    // Token/cost estimate mirrors computeModelMetrics so the numbers sum
+    // roughly to the overall totals shown on the Overview tab.
+    const totalTokens = completed.reduce((sum, t) => {
+      const profile = modelProfiles[t.model] ?? modelProfiles['claude-sonnet-4-6']
+      // Deterministic-ish: seed on task id length to avoid re-jitter per render
+      return sum + 1_200_000 * (1 + (profile.costPerMToken > 20 ? 0.3 : 0))
+    }, 0)
+    const totalCost = projectTasks.reduce((sum, t) => {
+      const profile = modelProfiles[t.model] ?? modelProfiles['claude-sonnet-4-6']
+      return sum + 1_200_000 / 1_000_000 * profile.costPerMToken
+    }, 0)
+    const avgCycle = completed.length > 0
+      ? completed.reduce((s, t) => s + (t.cycleTimeHours ?? 0), 0) / completed.length
+      : 0
+
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      tasksCompleted: completed.length,
+      mrsMerged: merged.length,
+      sessionsCount: projectTasks.reduce((s, t) => s + t.sessionHistory.length, 0),
+      totalCost: +totalCost.toFixed(2),
+      totalTokens: Math.round(totalTokens),
+      avgCycleTimeHours: +avgCycle.toFixed(1),
+    }
+  }).sort((a, b) => b.totalCost - a.totalCost)
 }
 
 export function computeModelMetrics(tasks: MetricsTask[], range: TimeRange): ModelMetrics[] {

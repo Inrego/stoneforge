@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
-import type { TimeRange, LayoutSize } from './metrics-types'
+import type { TimeRange, LayoutSize, ProjectScope } from './metrics-types'
 import {
   mockUsageStats, mockActivityHeatmap, mockAgentTokenSplit,
-  mockModelTokenUsage, mockCodeChurn, mockUsageInsights,
+  mockModelTokenUsage, mockCodeChurn, mockUsageInsights, mockProjects,
   tasksCompletedSeries, mrsMergedSeries, cycleTimeSeries, costSeries,
-  filterSeries, computeTrend,
+  filterSeries, computeTrend, computeProjectMetrics, mockMetricsTasks,
 } from './metrics-mock-data'
 import { Sparkline, AreaChart, TrendBadge, ActivityHeatmap } from './MetricsCharts'
 import { CheckCircle2, GitMerge, Clock, DollarSign } from 'lucide-react'
@@ -14,6 +14,13 @@ const sectionLabel: React.CSSProperties = { fontSize: 12, fontWeight: 500, color
 interface MetricsOverviewTabProps {
   timeRange: TimeRange
   layout: LayoutSize
+  /**
+   * Current per-project filter. `null` renders the cross-project totals view
+   * (the default, and the only scope where the per-project breakdown section
+   * is shown since scoping to a single project would trivially collapse it
+   * to one row).
+   */
+  projectScope: ProjectScope
 }
 
 function formatTokens(n: number): string {
@@ -27,7 +34,17 @@ function formatNumber(n: number): string {
   return n.toLocaleString('en-US')
 }
 
-export function MetricsOverviewTab({ timeRange, layout }: MetricsOverviewTabProps) {
+export function MetricsOverviewTab({ timeRange, layout, projectScope }: MetricsOverviewTabProps) {
+  // Per-project totals feed the cross-project totals view. Computed up-front
+  // from the full task set so every known project is represented even when a
+  // project had zero activity in the selected window.
+  const projectMetrics = useMemo(
+    () => computeProjectMetrics(mockMetricsTasks, timeRange),
+    [timeRange],
+  )
+  const activeProjectName = projectScope
+    ? mockProjects.find(p => p.id === projectScope)?.name ?? projectScope
+    : null
   const tasksTrend = useMemo(() => computeTrend(tasksCompletedSeries, timeRange), [timeRange])
   const mrsTrend = useMemo(() => computeTrend(mrsMergedSeries, timeRange), [timeRange])
   const cycleTrend = useMemo(() => {
@@ -143,6 +160,61 @@ export function MetricsOverviewTab({ timeRange, layout }: MetricsOverviewTabProp
             <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)', marginBottom: 4 }}>{card.label}</div>
             <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>{card.value}</div>
             <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 4 }}>{card.subtitle}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Per-project breakdown / cross-project totals view. Only rendered when
+          viewing all projects — inside a specific project scope it would
+          collapse to a single row, which is already covered by the KPI
+          strip above. */}
+      {projectScope === null ? (
+        <section>
+          <div style={sectionLabel}>Per-project breakdown</div>
+          <ProjectBreakdownTable rows={projectMetrics} />
+        </section>
+      ) : (
+        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+          Scoped to <strong style={{ color: 'var(--color-text-secondary)' }}>{activeProjectName}</strong>. Switch to <em>All projects</em> to see the cross-project totals view.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Per-project breakdown table ──
+//
+// Compact comparison of rolled-up metrics per project. Lives in the Overview
+// tab because it's a first-glance "where is spend concentrated?" question —
+// the Providers tab owns the finer per-model drilldown.
+
+function ProjectBreakdownTable({ rows }: { rows: ReturnType<typeof computeProjectMetrics> }) {
+  if (rows.length === 0) {
+    return (
+      <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', padding: '8px 0' }}>
+        No per-project data available for this time range.
+      </div>
+    )
+  }
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ minWidth: 520 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr repeat(5, 1fr)', gap: 4, padding: '6px 0', borderBottom: '1px solid var(--color-border-subtle)' }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)' }}>Project</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)', textAlign: 'right' }}>Tasks</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)', textAlign: 'right' }}>MRs</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)', textAlign: 'right' }}>Sessions</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)', textAlign: 'right' }}>Cost</span>
+          <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--color-text-tertiary)', textAlign: 'right' }}>Avg cycle</span>
+        </div>
+        {rows.map(row => (
+          <div key={row.projectId} style={{ display: 'grid', gridTemplateColumns: '1.5fr repeat(5, 1fr)', gap: 4, padding: '8px 0', borderBottom: '1px solid var(--color-border-subtle)', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--color-text)', fontWeight: 500 }}>{row.projectName}</span>
+            <span style={{ fontSize: 13, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{row.tasksCompleted}</span>
+            <span style={{ fontSize: 13, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{row.mrsMerged}</span>
+            <span style={{ fontSize: 13, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{row.sessionsCount}</span>
+            <span style={{ fontSize: 13, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>${row.totalCost.toFixed(2)}</span>
+            <span style={{ fontSize: 13, color: 'var(--color-text)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{row.avgCycleTimeHours.toFixed(1)}h</span>
           </div>
         ))}
       </div>

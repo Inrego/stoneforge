@@ -1,9 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { AlertCircle, AlertTriangle, Info, Bot, Cpu, Zap, Activity, Search, ChevronDown, ChevronRight } from 'lucide-react'
-import type { TimeRange, LayoutSize } from './metrics/metrics-types'
+import type { TimeRange, LayoutSize, ProjectScope } from './metrics/metrics-types'
 import { MetricsOverviewTab } from './metrics/MetricsOverviewTab'
 import { MetricsProvidersTab } from './metrics/MetricsProvidersTab'
 import { MetricsQualityTab } from './metrics/MetricsQualityTab'
+import { mockProjects } from './metrics/metrics-mock-data'
+
+// Sentinel used by the <select> element to represent the "all projects" view.
+// We avoid an empty string so the value is explicit in the DOM and reads well
+// in tests / accessibility tools.
+const ALL_PROJECTS_VALUE = '__all__'
 
 type MetricsTab = 'overview' | 'providers' | 'quality' | 'event-log'
 
@@ -36,6 +42,10 @@ export function MetricsOverlay({ initialTab, onTabChange, onNavigateToTask }: Me
     return 'overview'
   })
   const [timeRange, setTimeRange] = useState<TimeRange>('14d')
+  // `null` is the cross-project totals view (default). A concrete id restricts
+  // every tab to that project, matching the server-side `projectId` filter
+  // accepted by GET /api/provider-metrics.
+  const [projectScope, setProjectScope] = useState<ProjectScope>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const [layout, setLayout] = useState<LayoutSize>('wide')
 
@@ -55,14 +65,18 @@ export function MetricsOverlay({ initialTab, onTabChange, onNavigateToTask }: Me
     onTabChange?.(tab)
   }
 
+  const handleProjectChange = (value: string) => {
+    setProjectScope(value === ALL_PROJECTS_VALUE ? null : value)
+  }
+
   const renderTab = () => {
     switch (activeTab) {
       case 'overview':
-        return <MetricsOverviewTab timeRange={timeRange} layout={layout} />
+        return <MetricsOverviewTab timeRange={timeRange} layout={layout} projectScope={projectScope} />
       case 'providers':
-        return <MetricsProvidersTab timeRange={timeRange} layout={layout} />
+        return <MetricsProvidersTab timeRange={timeRange} layout={layout} projectScope={projectScope} />
       case 'quality':
-        return <MetricsQualityTab timeRange={timeRange} layout={layout} onNavigateToTask={onNavigateToTask} />
+        return <MetricsQualityTab timeRange={timeRange} layout={layout} projectScope={projectScope} onNavigateToTask={onNavigateToTask} />
       case 'event-log':
         return <EventLogTab />
     }
@@ -94,6 +108,24 @@ export function MetricsOverlay({ initialTab, onTabChange, onNavigateToTask }: Me
         </div>
 
         <div style={{ flex: 1 }} />
+
+        {/* Project scope selector: drives the per-project filter across every
+            tab. The "All projects" option yields the cross-project totals view. */}
+        <select
+          aria-label="Project scope"
+          value={projectScope ?? ALL_PROJECTS_VALUE}
+          onChange={e => handleProjectChange(e.target.value)}
+          style={{
+            padding: '4px 8px', border: '1px solid var(--color-border-subtle)',
+            borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)',
+            color: 'var(--color-text)', fontSize: 12, cursor: 'pointer',
+          }}
+        >
+          <option value={ALL_PROJECTS_VALUE}>All projects</option>
+          {mockProjects.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
 
         <div style={{ display: 'flex', gap: 2, background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', padding: 2 }}>
           {timeRanges.map(tr => (
