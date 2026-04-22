@@ -5,9 +5,10 @@
  */
 
 import { Hono } from 'hono';
-import type { ElementId, EntityId, Element, Document, DocumentId, CreateDocumentInput, DocumentCategory, DocumentStatus, EventType } from '@stoneforge/core';
+import type { ElementId, EntityId, Element, Document, DocumentId, CreateDocumentInput, DocumentCategory, DocumentStatus, EventType, ProjectId } from '@stoneforge/core';
 import { createDocument, isValidDocumentCategory, isValidDocumentStatus, DocumentStatus as DocumentStatusEnum, ContentType, validateContent, createEvent, createTimestamp } from '@stoneforge/core';
 import type { CollaborateServices } from './types.js';
+import { parseProjectIdFromBody, parseProjectIdFromQuery } from './project-id-util.js';
 
 // Comment type for the comments table
 interface CommentRow {
@@ -49,6 +50,16 @@ export function createDocumentRoutes(services: CollaborateServices) {
       const filter: Record<string, unknown> = {
         type: 'document',
       };
+
+      // Per-project filter: spans all projects by default. Pass ?projectId=<id>
+      // to restrict, or ?projectId=null to list unassigned documents only.
+      const projectIdResult = parseProjectIdFromQuery(url.searchParams);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        filter.projectId = projectIdResult.projectId;
+      }
 
       // Category filter
       if (categoryParam) {
@@ -314,6 +325,12 @@ export function createDocumentRoutes(services: CollaborateServices) {
         return c.json({ error: { code: 'VALIDATION_ERROR', message: `Invalid status: ${body.status}` } }, 400);
       }
 
+      // Parse optional projectId — scopes the document to a project when set.
+      const projectIdResult = parseProjectIdFromBody(body);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+
       // Build CreateDocumentInput
       const docInput: CreateDocumentInput = {
         contentType,
@@ -339,6 +356,11 @@ export function createDocumentRoutes(services: CollaborateServices) {
 
       // Create the document using the factory function
       const document = await createDocument(docInput);
+
+      // Attach projectId scope if caller supplied one (null is a no-op on create).
+      if (projectIdResult.projectId) {
+        (document as unknown as { projectId: ProjectId }).projectId = projectIdResult.projectId;
+      }
 
       // Create in database
       const created = await api.create(document as unknown as Element & Record<string, unknown>);
@@ -394,6 +416,16 @@ export function createDocumentRoutes(services: CollaborateServices) {
         if (body[field] !== undefined) {
           updates[field] = body[field];
         }
+      }
+
+      // Allow reassigning projectId on update: accept a validated id, or null
+      // to detach the document from its current project.
+      const projectIdResult = parseProjectIdFromBody(body);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        updates.projectId = projectIdResult.projectId;
       }
 
       // Validate contentType if provided

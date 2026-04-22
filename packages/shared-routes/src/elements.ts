@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import type { CollaborateServices } from './types.js';
+import { parseProjectIdFromQuery } from './project-id-util.js';
 
 /**
  * Helper to enrich tasks with dependency and attachment counts.
@@ -39,6 +40,13 @@ export function createElementsRoutes(services: CollaborateServices) {
       const includeDeleted = url.searchParams.get('includeDeleted') === 'true';
       const includeTaskCounts = url.searchParams.get('includeTaskCounts') === 'true';
 
+      // Per-project scope: spans all projects by default, ?projectId=<id>
+      // narrows to one project, ?projectId=null returns unassigned only.
+      const projectIdResult = parseProjectIdFromQuery(url.searchParams);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+
       // Define all element types we want to load
       const allTypes = ['task', 'plan', 'workflow', 'entity', 'document', 'channel', 'message', 'team', 'library'] as const;
       const requestedTypes = typesParam
@@ -54,6 +62,10 @@ export function createElementsRoutes(services: CollaborateServices) {
             orderBy: 'updated_at',
             orderDir: 'desc',
           };
+
+          if (projectIdResult.projectId !== undefined) {
+            filter.projectId = projectIdResult.projectId;
+          }
 
           if (!includeDeleted) {
             // Only include non-deleted elements

@@ -16,8 +16,10 @@ import type {
   Element,
   CreatePlanInput,
   PlanStatus,
+  ProjectId,
 } from '@stoneforge/core';
 import type { CollaborateServices } from './types.js';
+import { parseProjectIdFromBody, parseProjectIdFromQuery } from './project-id-util.js';
 
 export function createPlanRoutes(services: CollaborateServices) {
   const { api } = services;
@@ -46,6 +48,15 @@ export function createPlanRoutes(services: CollaborateServices) {
         orderBy: 'updated_at',
         orderDir: 'desc',
       };
+
+      // Per-project filter: spans all projects by default.
+      const projectIdResult = parseProjectIdFromQuery(url.searchParams);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        filter.projectId = projectIdResult.projectId;
+      }
 
       if (statusParam) {
         filter.status = statusParam;
@@ -406,7 +417,18 @@ export function createPlanRoutes(services: CollaborateServices) {
         descriptionRef: body.descriptionRef,
       };
 
+      // Parse optional projectId — scopes the plan and any newly-created
+      // initial task to the same project so they stay aligned.
+      const projectIdResult = parseProjectIdFromBody(body);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      const planProjectId = projectIdResult.projectId ?? undefined;
+
       const plan = await createPlan(planInput);
+      if (planProjectId) {
+        (plan as unknown as { projectId: ProjectId }).projectId = planProjectId;
+      }
       const created = await api.create(plan as unknown as Element & Record<string, unknown>);
 
       // Now add or create the initial task
@@ -426,6 +448,9 @@ export function createPlanRoutes(services: CollaborateServices) {
           createdBy: body.createdBy as EntityId,
         };
         const task = await createTask(taskInput);
+        if (planProjectId) {
+          (task as unknown as { projectId: ProjectId }).projectId = planProjectId;
+        }
         createdTask = await api.create(task as unknown as Element & Record<string, unknown>);
         taskId = createdTask.id as ElementId;
       }
@@ -532,6 +557,15 @@ export function createPlanRoutes(services: CollaborateServices) {
         if (body[field] !== undefined) {
           updates[field] = body[field];
         }
+      }
+
+      // Allow reassigning projectId on update (or `null` to detach).
+      const projectIdResult = parseProjectIdFromBody(body);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        updates.projectId = projectIdResult.projectId;
       }
 
       // Validate title if provided

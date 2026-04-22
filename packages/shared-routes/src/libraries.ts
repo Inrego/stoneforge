@@ -5,9 +5,10 @@
  */
 
 import { Hono } from 'hono';
-import type { ElementId, EntityId, Element, CreateLibraryInput } from '@stoneforge/core';
+import type { ElementId, EntityId, Element, CreateLibraryInput, ProjectId } from '@stoneforge/core';
 import { createLibrary } from '@stoneforge/core';
 import type { CollaborateServices } from './types.js';
+import { parseProjectIdFromBody, parseProjectIdFromQuery } from './project-id-util.js';
 
 export function createLibraryRoutes(services: CollaborateServices) {
   const { api } = services;
@@ -21,9 +22,16 @@ export function createLibraryRoutes(services: CollaborateServices) {
       const limitParam = url.searchParams.get('limit');
       const limit = limitParam ? parseInt(limitParam, 10) : 10000; // Default to loading all
 
+      // Per-project filter: spans all projects by default.
+      const projectIdResult = parseProjectIdFromQuery(url.searchParams);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+
       const libraries = await api.list({
         type: 'library',
         limit,
+        ...(projectIdResult.projectId !== undefined && { projectId: projectIdResult.projectId }),
         ...(hydrateDescription && { hydrate: { description: true } }),
       } as Parameters<typeof api.list>[0]);
 
@@ -474,6 +482,7 @@ export function createLibraryRoutes(services: CollaborateServices) {
         parentId?: string;
         tags?: string[];
         metadata?: Record<string, unknown>;
+        projectId?: string | null;
       };
 
       // Validate required fields
@@ -482,6 +491,12 @@ export function createLibraryRoutes(services: CollaborateServices) {
       }
       if (!body.createdBy || typeof body.createdBy !== 'string') {
         return c.json({ error: { code: 'VALIDATION_ERROR', message: 'createdBy is required and must be a string' } }, 400);
+      }
+
+      // Parse optional projectId — scopes the library to a project when set.
+      const projectIdResult = parseProjectIdFromBody(body);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
       }
 
       // Create the library input
@@ -494,6 +509,10 @@ export function createLibraryRoutes(services: CollaborateServices) {
 
       // Create the library using the factory function
       const library = await createLibrary(libraryInput);
+
+      if (projectIdResult.projectId) {
+        (library as unknown as { projectId: ProjectId }).projectId = projectIdResult.projectId;
+      }
 
       // Persist to database
       const created = await api.create(library as unknown as Element & Record<string, unknown>);

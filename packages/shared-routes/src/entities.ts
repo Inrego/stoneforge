@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import type { CollaborateServices } from './types.js';
+import { parseProjectIdFromQuery } from './project-id-util.js';
 
 export function createEntityRoutes(services: CollaborateServices) {
   const { api } = services;
@@ -39,6 +40,16 @@ export function createEntityRoutes(services: CollaborateServices) {
       const filter: Record<string, unknown> = {
         type: 'entity',
       };
+
+      // Per-project filter: spans all projects by default. Pass ?projectId=<id>
+      // to restrict, or ?projectId=null to list unassigned entities only.
+      const projectIdResult = parseProjectIdFromQuery(url.searchParams);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        filter.projectId = projectIdResult.projectId;
+      }
 
       if (limitParam) {
         filter.limit = parseInt(limitParam, 10);

@@ -7,6 +7,14 @@
 // Types
 export type { CollaborateServices, CollaborateServicesWithBroadcast, BroadcastInboxEventFn, QuarryLikeAPI, InboxLikeService } from './types.js';
 
+// Utility helpers shared across route factories
+export {
+  parseProjectIdFromBody,
+  parseProjectIdFromQuery,
+  type ProjectIdBodyResult,
+  type ProjectIdQueryResult,
+} from './project-id-util.js';
+
 // Route factories
 export { createElementsRoutes } from './elements.js';
 export { createEntityRoutes } from './entities.js';

@@ -10,6 +10,7 @@ import type {
   Element,
   ElementId,
   EntityId,
+  ProjectId,
   Document,
   DocumentId,
   Task,
@@ -21,6 +22,10 @@ import type {
   InboxItem,
   CreateInboxItemInput,
 } from '@stoneforge/core';
+
+// Re-export ProjectId for convenience; shared-route handlers use it when
+// parsing the `?projectId=` query parameter and validating create bodies.
+export type { ProjectId };
 
 // ============================================================================
 // Duck-typed interfaces for quarry types

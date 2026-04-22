@@ -320,6 +320,44 @@ describe('QuarryAPI', () => {
       const descIds = new Set(descending.map((e) => e.id));
       expect(ascIds).toEqual(descIds);
     });
+
+    it('spans all projects by default (projectId filter omitted)', async () => {
+      // Put two of the existing tasks into projects to prove the absence of
+      // the filter returns both project-owned and unassigned rows.
+      const all = await api.list<Task>({ type: 'task' });
+      await api.update(all[0].id, { projectId: 'el-projA' } as Partial<Task>);
+      await api.update(all[1].id, { projectId: 'el-projB' } as Partial<Task>);
+
+      const spanning = await api.list<Task>({ type: 'task' });
+      expect(spanning.length).toBe(3);
+    });
+
+    it('filters to a specific projectId when supplied', async () => {
+      const all = await api.list<Task>({ type: 'task' });
+      await api.update(all[0].id, { projectId: 'el-projA' } as Partial<Task>);
+      await api.update(all[1].id, { projectId: 'el-projB' } as Partial<Task>);
+
+      const projectA = await api.list<Task>({ type: 'task', projectId: 'el-projA' as unknown as Task['projectId'] });
+      expect(projectA.length).toBe(1);
+      expect(projectA[0].projectId).toBe('el-projA' as unknown as Task['projectId']);
+    });
+
+    it('returns only unassigned rows when projectId=null', async () => {
+      const all = await api.list<Task>({ type: 'task' });
+      await api.update(all[0].id, { projectId: 'el-projA' } as Partial<Task>);
+
+      const unassigned = await api.list<Task>({ type: 'task', projectId: null });
+      expect(unassigned.length).toBe(2);
+      unassigned.forEach((t) => expect(t.projectId).toBeUndefined());
+    });
+
+    it('deserializes projectId onto elements via list()', async () => {
+      const tasks = await api.list<Task>({ type: 'task' });
+      await api.update(tasks[0].id, { projectId: 'el-projA' } as Partial<Task>);
+
+      const reloaded = await api.list<Task>({ type: 'task', projectId: 'el-projA' as unknown as Task['projectId'] });
+      expect(reloaded[0].projectId).toBe('el-projA' as unknown as Task['projectId']);
+    });
   });
 
   // --------------------------------------------------------------------------

@@ -5,9 +5,10 @@
  */
 
 import { Hono } from 'hono';
-import type { ElementId, EntityId, Channel, Message, Element, CreateMessageInput } from '@stoneforge/core';
+import type { ElementId, EntityId, Channel, Message, Element, CreateMessageInput, ProjectId } from '@stoneforge/core';
 import { createDocument, createMessage, DocumentCategory } from '@stoneforge/core';
 import type { CollaborateServicesWithBroadcast } from './types.js';
+import { parseProjectIdFromQuery } from './project-id-util.js';
 
 export function createMessageRoutes(services: CollaborateServicesWithBroadcast) {
   const { api, inboxService, broadcastInboxEvent } = services;
@@ -52,6 +53,11 @@ export function createMessageRoutes(services: CollaborateServicesWithBroadcast) 
         }
       }
 
+      // Messages inherit the channel's project scope so replies stay in the
+      // same project context.
+      const channelProjectId = (channel as Element & { projectId?: ProjectId }).projectId;
+      const inheritedProjectId: ProjectId | undefined = channelProjectId ?? undefined;
+
       // Create a document for the message content
       const contentDoc = await createDocument({
         contentType: 'text',
@@ -60,6 +66,9 @@ export function createMessageRoutes(services: CollaborateServicesWithBroadcast) 
         category: DocumentCategory.MESSAGE_CONTENT,
         immutable: true,
       });
+      if (inheritedProjectId) {
+        (contentDoc as unknown as { projectId: ProjectId }).projectId = inheritedProjectId;
+      }
       const createdDoc = await api.create(contentDoc as unknown as Element & Record<string, unknown>);
 
       // Create the message with the content document reference
@@ -71,6 +80,9 @@ export function createMessageRoutes(services: CollaborateServicesWithBroadcast) 
         ...(body.tags && { tags: body.tags }),
       };
       const message = await createMessage(messageInput as unknown as CreateMessageInput);
+      if (inheritedProjectId) {
+        (message as unknown as { projectId: ProjectId }).projectId = inheritedProjectId;
+      }
       const createdMessage = await api.create(message as unknown as Element & Record<string, unknown>);
 
       // Handle attachments if provided
@@ -277,6 +289,15 @@ export function createMessageRoutes(services: CollaborateServicesWithBroadcast) 
 
       if (channelId) {
         filter.channelId = channelId;
+      }
+
+      // Per-project filter: spans all projects by default.
+      const projectIdResult = parseProjectIdFromQuery(url.searchParams);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        filter.projectId = projectIdResult.projectId;
       }
 
       const allMessages = await api.list(filter as Parameters<typeof api.list>[0]);

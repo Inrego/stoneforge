@@ -11,6 +11,7 @@ import type {
   ElementId,
   ElementType,
   EntityId,
+  ProjectId,
   Timestamp,
   Task,
   TaskStatus,
@@ -97,6 +98,12 @@ export interface ElementFilter extends PaginationOptions, SortOptions {
   updatedBefore?: Timestamp;
   /** Include soft-deleted elements (tombstones) */
   includeDeleted?: boolean;
+  /**
+   * Filter by owning project. Default behavior (when omitted) is to span all
+   * projects. Pass a `ProjectId` to restrict to a single project, or `null`
+   * to return only elements that have no project assignment.
+   */
+  projectId?: ProjectId | null;
   /** Hydration options for resolving document references */
   hydrate?: HydrationOptions;
 }

@@ -23,8 +23,16 @@ import {
   createTimestamp,
   validateTags,
   validateMetadata,
+  ProjectId,
+  asProjectId,
+  isValidProjectId,
+  validateProjectId,
 } from './element.js';
 import { generateId, type IdGeneratorConfig } from '../id/generator.js';
+
+// Re-export ProjectId surface for existing consumers of './project.js'.
+export type { ProjectId };
+export { asProjectId, isValidProjectId, validateProjectId };
 
 // ============================================================================
 // Validation Constants
@@ -38,20 +46,6 @@ export const MAX_PROJECT_NAME_LENGTH = 100;
 
 /** Maximum project path length */
 export const MAX_PROJECT_PATH_LENGTH = 4096;
-
-// ============================================================================
-// Project ID Type
-// ============================================================================
-
-/**
- * Branded type for Project IDs (for use in references such as element.projectId)
- */
-export type ProjectId = ElementId & { readonly __projectIdBrand: 'ProjectId' };
-
-/** Cast a string to ProjectId (use at trust boundaries only) */
-export function asProjectId(id: string): ProjectId {
-  return id as unknown as ProjectId;
-}
 
 // ============================================================================
 // Project Interface
@@ -170,39 +164,6 @@ export function validateProjectPath(value: unknown): string {
   }
 
   return trimmed;
-}
-
-/**
- * Validates a project ID format (matches Element ID format: el-{3-8 base36 chars})
- */
-export function isValidProjectId(value: unknown): value is ProjectId {
-  if (typeof value !== 'string') {
-    return false;
-  }
-  return /^el-[0-9a-z]{3,8}$/.test(value);
-}
-
-/**
- * Validates project ID and throws if invalid
- */
-export function validateProjectId(value: unknown): ProjectId {
-  if (typeof value !== 'string') {
-    throw new ValidationError(
-      'Project ID must be a string',
-      ErrorCode.INVALID_INPUT,
-      { field: 'projectId', value, expected: 'string' }
-    );
-  }
-
-  if (!/^el-[0-9a-z]{3,8}$/.test(value)) {
-    throw new ValidationError(
-      'Project ID has invalid format',
-      ErrorCode.INVALID_INPUT,
-      { field: 'projectId', value, expected: 'el-{3-8 base36 chars}' }
-    );
-  }
-
-  return value as ProjectId;
 }
 
 // ============================================================================

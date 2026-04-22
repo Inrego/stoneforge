@@ -27,6 +27,13 @@ export type ElementId = string & { readonly __elementIdBrand: 'ElementId' };
 export type EntityId = string & { readonly __entityIdBrand: 'EntityId' };
 
 /**
+ * Branded type for Project IDs (references to project elements).
+ * Defined here to let the base Element interface carry a `projectId` field
+ * without creating a circular import with project.ts.
+ */
+export type ProjectId = ElementId & { readonly __projectIdBrand: 'ProjectId' };
+
+/**
  * Timestamp type - ISO 8601 formatted string
  * Format: YYYY-MM-DDTHH:mm:ss.sssZ
  */
@@ -44,6 +51,11 @@ export function asEntityId(id: string): EntityId {
 /** Cast a string to ElementId (use at trust boundaries only) */
 export function asElementId(id: string): ElementId {
   return id as unknown as ElementId;
+}
+
+/** Cast a string to ProjectId (use at trust boundaries only) */
+export function asProjectId(id: string): ProjectId {
+  return id as unknown as ProjectId;
 }
 
 // ============================================================================
@@ -93,6 +105,43 @@ export interface Element {
   metadata: Record<string, unknown>;
   /** ISO 8601 datetime when element was soft-deleted, undefined if active */
   deletedAt?: Timestamp;
+  /**
+   * Optional reference to the owning project. Undefined/null on legacy rows
+   * created before multi-project support; new elements should set this so they
+   * can be scoped via per-project queries.
+   */
+  projectId?: ProjectId;
+}
+
+// ============================================================================
+// Project ID Validation
+// ============================================================================
+
+/** ProjectId format: shares the ElementId shape (el-{3-8 base36 chars}) */
+const PROJECT_ID_PATTERN = /^el-[0-9a-z]{3,8}$/;
+
+/** Validates a project ID format. */
+export function isValidProjectId(value: unknown): value is ProjectId {
+  return typeof value === 'string' && PROJECT_ID_PATTERN.test(value);
+}
+
+/** Validates project ID and throws if invalid. */
+export function validateProjectId(value: unknown): ProjectId {
+  if (typeof value !== 'string') {
+    throw new ValidationError(
+      'Project ID must be a string',
+      ErrorCode.INVALID_INPUT,
+      { field: 'projectId', value, expected: 'string' }
+    );
+  }
+  if (!PROJECT_ID_PATTERN.test(value)) {
+    throw new ValidationError(
+      'Project ID has invalid format',
+      ErrorCode.INVALID_INPUT,
+      { field: 'projectId', value, expected: 'el-{3-8 base36 chars}' }
+    );
+  }
+  return value as ProjectId;
 }
 
 // ============================================================================
@@ -390,6 +439,10 @@ export function isElement(value: unknown): value is Element {
   if (typeof obj.createdBy !== 'string') return false;
   if (!isValidTags(obj.tags)) return false;
   if (!isValidMetadata(obj.metadata)) return false;
+  // Optional projectId: if present, must be a valid project ID string
+  if (obj.projectId !== undefined && obj.projectId !== null && !isValidProjectId(obj.projectId)) {
+    return false;
+  }
 
   return true;
 }
@@ -438,6 +491,11 @@ export function validateElement(value: unknown): Element {
 
   // Validate metadata
   validateMetadata(obj.metadata);
+
+  // Validate optional projectId
+  if (obj.projectId !== undefined && obj.projectId !== null) {
+    validateProjectId(obj.projectId);
+  }
 
   return value as Element;
 }

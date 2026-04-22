@@ -5,10 +5,11 @@
  */
 
 import { Hono } from 'hono';
-import type { ElementId, EntityId, Channel, Entity, Visibility, JoinPolicy } from '@stoneforge/core';
+import type { ElementId, EntityId, Channel, Entity, ProjectId, Visibility, JoinPolicy } from '@stoneforge/core';
 import { createGroupChannel, createDirectChannel } from '@stoneforge/core';
 import type { CreateGroupChannelInput, CreateDirectChannelInput, Element } from '@stoneforge/core';
 import type { CollaborateServices } from './types.js';
+import { parseProjectIdFromBody, parseProjectIdFromQuery } from './project-id-util.js';
 
 export function createChannelRoutes(services: CollaborateServices) {
   const { api } = services;
@@ -31,6 +32,16 @@ export function createChannelRoutes(services: CollaborateServices) {
       const filter: Record<string, unknown> = {
         type: 'channel',
       };
+
+      // Per-project filter: spans all projects by default. Pass ?projectId=<id>
+      // to restrict, or ?projectId=null to list unassigned channels only.
+      const projectIdResult = parseProjectIdFromQuery(url.searchParams);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        filter.projectId = projectIdResult.projectId;
+      }
 
       if (limitParam) {
         filter.limit = parseInt(limitParam, 10);
@@ -123,6 +134,7 @@ export function createChannelRoutes(services: CollaborateServices) {
         entityB?: string;
         tags?: string[];
         metadata?: Record<string, unknown>;
+        projectId?: string | null;
       };
 
       // Validate channelType
@@ -136,6 +148,12 @@ export function createChannelRoutes(services: CollaborateServices) {
       // Validate createdBy
       if (!body.createdBy || typeof body.createdBy !== 'string') {
         return c.json({ error: { code: 'VALIDATION_ERROR', message: 'createdBy is required and must be a string' } }, 400);
+      }
+
+      // Parse optional projectId — scopes the channel to a project if supplied.
+      const projectIdResult = parseProjectIdFromBody(body);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
       }
 
       let channel;
@@ -185,6 +203,13 @@ export function createChannelRoutes(services: CollaborateServices) {
         };
 
         channel = await createDirectChannel(directInput);
+      }
+
+      // Attach projectId scope if the caller supplied one. `undefined` leaves
+      // the element unassigned (legacy behaviour); `null` is treated the same
+      // for create since there's nothing to detach yet.
+      if (projectIdResult.projectId) {
+        (channel as unknown as { projectId: ProjectId }).projectId = projectIdResult.projectId;
       }
 
       // Create the channel in database

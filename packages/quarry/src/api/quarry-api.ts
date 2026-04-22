@@ -11,6 +11,7 @@ import type {
   ElementId,
   EntityId,
   ElementType,
+  ProjectId,
   Timestamp,
   Task,
   HydratedTask,
@@ -162,6 +163,7 @@ interface ElementRow {
   updated_at: string;
   created_by: string;
   deleted_at: string | null;
+  project_id: string | null;
   [key: string]: unknown;
 }
 
@@ -209,7 +211,11 @@ interface CountRow {
 // ============================================================================
 
 /**
- * Serialize an element to database format
+ * Serialize an element to database format.
+ *
+ * `projectId` is promoted to its own column (`project_id`) so it can be
+ * indexed/filtered at the SQL layer. It is intentionally omitted from the
+ * `data` JSON to avoid double-storage.
  */
 function serializeElement(element: Element): {
   id: string;
@@ -220,9 +226,21 @@ function serializeElement(element: Element): {
   updated_at: string;
   created_by: string;
   deleted_at: string | null;
+  project_id: string | null;
 } {
-  // Extract base element fields and type-specific data
-  const { id, type, createdAt, updatedAt, createdBy, tags, metadata, ...typeData } = element;
+  // Extract base element fields and type-specific data.
+  // `projectId` is pulled out separately so it lives only in its own column.
+  const {
+    id,
+    type,
+    createdAt,
+    updatedAt,
+    createdBy,
+    tags,
+    metadata,
+    projectId,
+    ...typeData
+  } = element;
 
   // Store type-specific fields in data JSON
   const data = JSON.stringify({
@@ -246,11 +264,15 @@ function serializeElement(element: Element): {
     updated_at: updatedAt,
     created_by: createdBy,
     deleted_at: deletedAt ?? null,
+    project_id: projectId ?? null,
   };
 }
 
 /**
- * Deserialize a database row to an element
+ * Deserialize a database row to an element.
+ *
+ * Surfaces `projectId` from its own column onto the returned element so every
+ * element response carries its project association.
  */
 function deserializeElement<T extends Element>(row: ElementRow, tags: string[]): T | null {
   let data: Record<string, unknown>;
@@ -261,7 +283,7 @@ function deserializeElement<T extends Element>(row: ElementRow, tags: string[]):
     return null;
   }
 
-  return {
+  const base = {
     id: row.id as ElementId,
     type: row.type as ElementType,
     createdAt: row.created_at as Timestamp,
@@ -270,7 +292,15 @@ function deserializeElement<T extends Element>(row: ElementRow, tags: string[]):
     tags,
     metadata: data.metadata ?? {},
     ...data,
-  } as T;
+  };
+
+  // Promote project_id column onto the element (only when set, so undefined
+  // stays undefined for legacy rows rather than JSON-serializing as null).
+  if (row.project_id !== null && row.project_id !== undefined) {
+    (base as { projectId?: ProjectId }).projectId = row.project_id as ProjectId;
+  }
+
+  return base as T;
 }
 
 /**
@@ -314,6 +344,18 @@ function buildWhereClause(
   if (filter.updatedBefore !== undefined) {
     conditions.push('e.updated_at < ?');
     params.push(filter.updatedBefore);
+  }
+
+  // Project scope filter. The API-level default is to span all projects;
+  // callers narrow the scope by passing projectId explicitly.
+  if (filter.projectId !== undefined) {
+    if (filter.projectId === null) {
+      // Explicit request for unassigned elements only.
+      conditions.push('e.project_id IS NULL');
+    } else {
+      conditions.push('e.project_id = ?');
+      params.push(filter.projectId);
+    }
   }
 
   // Include deleted filter
@@ -1043,8 +1085,8 @@ export class QuarryAPIImpl implements QuarryAPI {
     this.backend.transaction((tx) => {
       // Insert the element
       tx.run(
-        `INSERT INTO elements (id, type, data, content_hash, created_at, updated_at, created_by, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO elements (id, type, data, content_hash, created_at, updated_at, created_by, deleted_at, project_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           serialized.id,
           serialized.type,
@@ -1054,6 +1096,7 @@ export class QuarryAPIImpl implements QuarryAPI {
           serialized.updated_at,
           serialized.created_by,
           serialized.deleted_at,
+          serialized.project_id,
         ]
       );
 
@@ -1382,9 +1425,9 @@ export class QuarryAPIImpl implements QuarryAPI {
 
       // Update the element
       tx.run(
-        `UPDATE elements SET data = ?, content_hash = ?, updated_at = ?, deleted_at = ?
+        `UPDATE elements SET data = ?, content_hash = ?, updated_at = ?, deleted_at = ?, project_id = ?
          WHERE id = ?`,
-        [serialized.data, serialized.content_hash, serialized.updated_at, serialized.deleted_at, id]
+        [serialized.data, serialized.content_hash, serialized.updated_at, serialized.deleted_at, serialized.project_id, id]
       );
 
       // Update tags if they changed

@@ -8,6 +8,7 @@
 import { Hono } from 'hono';
 import type { ElementId } from '@stoneforge/core';
 import type { CollaborateServices } from './types.js';
+import { parseProjectIdFromBody } from './project-id-util.js';
 
 export function createTaskRoutes(services: CollaborateServices) {
   const { api } = services;
@@ -49,6 +50,15 @@ export function createTaskRoutes(services: CollaborateServices) {
         if (body.updates[field] !== undefined) {
           updates[field] = body.updates[field];
         }
+      }
+
+      // Allow bulk reassigning projectId (or `null` to detach) across tasks.
+      const projectIdResult = parseProjectIdFromBody(body.updates);
+      if (!projectIdResult.ok) {
+        return c.json({ error: { code: 'VALIDATION_ERROR', message: projectIdResult.error } }, 400);
+      }
+      if (projectIdResult.projectId !== undefined) {
+        updates.projectId = projectIdResult.projectId;
       }
 
       if (Object.keys(updates).length === 0) {
