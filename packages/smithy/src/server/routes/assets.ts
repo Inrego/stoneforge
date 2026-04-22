@@ -9,7 +9,7 @@ import { resolve, extname } from 'node:path';
 import { writeFile, readFile, mkdir, stat } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { Hono } from 'hono';
-import { PROJECT_ROOT } from '../config.js';
+import { PROJECT_ROOT } from '../paths.js';
 import { createLogger } from '../../utils/logger.js';
 
 const logger = createLogger('orchestrator');

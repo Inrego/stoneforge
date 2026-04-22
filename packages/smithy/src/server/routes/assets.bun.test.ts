@@ -20,7 +20,7 @@ vi.mock('node:crypto', () => ({
   randomBytes: vi.fn(() => Buffer.from('deadbeef', 'hex')),
 }));
 
-vi.mock('../config.js', () => ({
+vi.mock('../paths.js', () => ({
   PROJECT_ROOT: '/workspace',
 }));
 

@@ -11,7 +11,8 @@ import type { EntityId } from '@stoneforge/core';
 import { getAgentMetadata } from '../index.js';
 import type { AgentEntity } from '../api/orchestrator-api.js';
 import { createLogger, getLogLevel } from '../utils/logger.js';
-import { CORS_ORIGINS as DEFAULT_CORS_ORIGINS, PORT as DEFAULT_PORT, HOST as DEFAULT_HOST, PROJECT_ROOT as DEFAULT_PROJECT_ROOT, DB_PATH as DEFAULT_DB_PATH } from './config.js';
+import { CORS_ORIGINS as DEFAULT_CORS_ORIGINS, PORT as DEFAULT_PORT, HOST as DEFAULT_HOST, DB_PATH as DEFAULT_DB_PATH } from './config.js';
+import { PROJECT_ROOT as DEFAULT_PROJECT_ROOT } from './paths.js';
 import { initializeServices, type Services } from './services.js';
 import {
   createHealthRoutes,

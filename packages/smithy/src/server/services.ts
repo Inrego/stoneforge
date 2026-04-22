@@ -65,7 +65,8 @@ import {
 import { createSyncEngine, createConfiguredProviderRegistry } from '@stoneforge/quarry';
 import { attachSessionEventSaver } from './routes/sessions.js';
 import { notifySSEClientsOfNewSession } from './routes/events.js';
-import { DB_PATH as DEFAULT_DB_PATH, PROJECT_ROOT as DEFAULT_PROJECT_ROOT, getClaudePath } from './config.js';
+import { DB_PATH as DEFAULT_DB_PATH, getClaudePath } from './config.js';
+import { PROJECT_ROOT as DEFAULT_PROJECT_ROOT } from './paths.js';
 import { getDaemonConfigOverrides } from './daemon-state.js';
 import { createLogger } from '../utils/logger.js';
 import { getFallbackResetTime } from '../utils/rate-limit-parser.js';

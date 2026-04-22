@@ -8,7 +8,7 @@
 import { resolve, relative, join, normalize, dirname } from 'node:path';
 import { readdir, readFile, writeFile, stat, mkdir, unlink, rename as fsRename, rm } from 'node:fs/promises';
 import { Hono } from 'hono';
-import { PROJECT_ROOT } from '../config.js';
+import { PROJECT_ROOT } from '../paths.js';
 import { createLogger } from '../../utils/logger.js';
 
 const logger = createLogger('orchestrator');

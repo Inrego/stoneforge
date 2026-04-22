@@ -8,7 +8,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { PROJECT_ROOT } from './config.js';
+import { PROJECT_ROOT } from './paths.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('daemon-state');

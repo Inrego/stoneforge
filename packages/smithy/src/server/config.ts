@@ -4,7 +4,8 @@
  * Centralized configuration for the orchestrator server.
  */
 
-import { resolve } from 'node:path';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createLogger } from '../utils/logger.js';
@@ -14,8 +15,15 @@ const logger = createLogger('orchestrator');
 export const PORT = parseInt(process.env.ORCHESTRATOR_PORT || process.env.PORT || '3457', 10);
 export const HOST = process.env.HOST || 'localhost';
 
-export const PROJECT_ROOT = process.cwd();
-const DEFAULT_DB_PATH = resolve(PROJECT_ROOT, '.stoneforge/stoneforge.db');
+/**
+ * Default location of the global Stoneforge SQLite database.
+ *
+ * The server DB is a per-user store shared across every Stoneforge workspace
+ * on the machine, so it lives under `~/.stoneforge/` rather than inside any
+ * specific project directory. Override with the `STONEFORGE_DB_PATH`
+ * environment variable (e.g., for tests or bespoke deployments).
+ */
+const DEFAULT_DB_PATH = join(homedir(), '.stoneforge', 'stoneforge.db');
 export const DB_PATH = process.env.STONEFORGE_DB_PATH || DEFAULT_DB_PATH;
 
 export const UPLOAD_DIR = '/tmp/stoneforge-terminal-uploads';
