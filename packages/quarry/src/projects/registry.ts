@@ -46,6 +46,14 @@ export const GLOBAL_STONEFORGE_DIR = '.stoneforge';
 export const PROJECTS_REGISTRY_FILE = 'projects.json';
 export const CURRENT_REGISTRY_VERSION = 1 as const;
 
+/**
+ * Environment override for the global `~/.stoneforge` directory. Set it to
+ * point every registry read/write and the global cache DB at an alternate
+ * root. Mainly used by tests and by operators running multiple isolated
+ * Stoneforge installs on one machine.
+ */
+export const STONEFORGE_HOME_ENV = 'STONEFORGE_HOME';
+
 const PROJECT_ID_PREFIX = 'proj-';
 const PROJECT_ID_BYTES = 4; // 8 hex chars, collision-safe for the registry
 const GITDIR_POINTER_PREFIX = 'gitdir:';
@@ -102,8 +110,18 @@ export class ProjectRegistryError extends Error {
 // Path helpers
 // ============================================================================
 
-/** Absolute path to the global `~/.stoneforge` directory. */
+/**
+ * Absolute path to the global `~/.stoneforge` directory.
+ *
+ * Honors the `STONEFORGE_HOME` env var when set (for tests and for running
+ * multiple isolated installs on one machine); otherwise falls back to
+ * `<homedir>/.stoneforge`.
+ */
 export function getGlobalStoneforgeDir(): string {
+  const override = process.env[STONEFORGE_HOME_ENV];
+  if (override && override.trim().length > 0) {
+    return override;
+  }
   return join(homedir(), GLOBAL_STONEFORGE_DIR);
 }
 

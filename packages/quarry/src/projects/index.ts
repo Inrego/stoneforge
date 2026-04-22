@@ -10,6 +10,7 @@ export {
   CURRENT_REGISTRY_VERSION,
   GLOBAL_STONEFORGE_DIR,
   PROJECTS_REGISTRY_FILE,
+  STONEFORGE_HOME_ENV,
   // Path helpers
   getGlobalStoneforgeDir,
   getRegistryPath,
@@ -42,3 +43,16 @@ export {
   type ProjectRegistryService,
   type ProjectRegistryServiceOptions,
 } from './service.js';
+
+export {
+  // Constants
+  GLOBAL_DB_FILE,
+  // Path helpers
+  getGlobalDbPath,
+  // Rebuild
+  rebuildGlobalCache,
+  // Types
+  type RebuildInput,
+  type RebuildResult,
+  type SkippedProject,
+} from './rebuild.js';

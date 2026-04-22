@@ -81,6 +81,7 @@ export {
   CURRENT_REGISTRY_VERSION,
   GLOBAL_STONEFORGE_DIR,
   PROJECTS_REGISTRY_FILE,
+  STONEFORGE_HOME_ENV,
   getGlobalStoneforgeDir,
   getRegistryPath,
   validateProjectPath,
@@ -103,6 +104,12 @@ export {
   loadProjectRegistryForBoot,
   type ProjectRegistryService,
   type ProjectRegistryServiceOptions,
+  GLOBAL_DB_FILE,
+  getGlobalDbPath,
+  rebuildGlobalCache,
+  type RebuildInput,
+  type RebuildResult,
+  type SkippedProject,
 } from './projects/index.js';
 
 // HTTP handlers for browser sync
