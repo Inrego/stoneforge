@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { GitMerge, Check, X, Clock, ChevronRight, Plus, Minus, Bot, Search, Filter, SlidersHorizontal, ArrowUpDown, ArrowDown, ArrowUp, GitPullRequest } from 'lucide-react'
+import { GitMerge, Check, X, Clock, ChevronRight, Plus, Minus, Bot, Search, Filter, SlidersHorizontal, ArrowUpDown, ArrowDown, ArrowUp, GitPullRequest, Layers, ChevronDown } from 'lucide-react'
 import type { MergeRequestExtended, ReviewState } from './mr-types'
 import { CreateMRDialog } from './CreateMRDialog'
+import { getProject, PROJECTS } from '../../../mock-data'
+import { ProjectDropdown, ProjectTag } from '../../dropdowns/PropertyDropdowns'
 
 // ── Filter types ──
-type MRFilterField = 'status' | 'author' | 'label' | 'ciStatus' | 'steward'
+type MRFilterField = 'status' | 'author' | 'label' | 'ciStatus' | 'steward' | 'project'
 interface MRActiveFilter { field: MRFilterField; value: string }
 
 type MRSortField = 'created' | 'title' | 'additions' | 'filesChanged'
@@ -22,6 +24,7 @@ export function MRListView({ mergeRequests, onSelectMR, onCreateMR }: MRListView
   const [searchExpanded, setSearchExpanded] = useState(false)
   const [filters, setFilters] = useState<MRActiveFilter[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
+  const [projectFilterOpen, setProjectFilterOpen] = useState(false)
   const [displayOpen, setDisplayOpen] = useState(false)
   const [groupBy, setGroupBy] = useState<MRGroupField>('status')
   const [sortField, setSortField] = useState<MRSortField>('created')
@@ -62,6 +65,11 @@ export function MRListView({ mergeRequests, onSelectMR, onCreateMR }: MRListView
           break
         case 'steward':
           result = result.filter(mr => mr.reviewAgentStatus === f.value)
+          break
+        case 'project':
+          result = f.value === '_unassigned'
+            ? result.filter(mr => !mr.projectId)
+            : result.filter(mr => mr.projectId === f.value)
           break
       }
     }
@@ -119,19 +127,43 @@ export function MRListView({ mergeRequests, onSelectMR, onCreateMR }: MRListView
 
   const removeFilter = (idx: number) => setFilters(prev => [...prev.slice(0, idx), ...prev.slice(idx + 1)])
 
+  const currentProjectFilter = filters.find(f => f.field === 'project')?.value
+  const selectProject = (projectId: string | undefined) => {
+    setFilters(prev => {
+      const withoutProject = prev.filter(f => f.field !== 'project')
+      return projectId ? [...withoutProject, { field: 'project' as MRFilterField, value: projectId }] : withoutProject
+    })
+  }
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', flexShrink: 0, borderBottom: '1px solid var(--color-border-subtle)', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>Merge Requests</span>
 
+        {/* Project filter — single-select dropdown, prominent at top of view */}
+        <MRProjectFilterButton
+          current={currentProjectFilter}
+          isOpen={projectFilterOpen}
+          onToggle={() => setProjectFilterOpen(v => !v)}
+          onSelect={id => { selectProject(id); setProjectFilterOpen(false) }}
+          onClose={() => setProjectFilterOpen(false)}
+        />
+
         {/* Active filter pills — inline */}
-        {filters.map((f, i) => (
-          <span key={i} style={{ height: 22, padding: '0 6px 0 8px', display: 'flex', alignItems: 'center', gap: 4, borderRadius: 'var(--radius-sm)', background: 'var(--color-primary-subtle)', color: 'var(--color-text-accent)', fontSize: 11, fontWeight: 500 }}>
-            {f.field}: {f.value}
-            <X size={11} strokeWidth={2} style={{ cursor: 'pointer' }} onClick={() => removeFilter(i)} />
-          </span>
-        ))}
+        {filters.map((f, i) => {
+          let display: string
+          if (f.field === 'project') {
+            const name = f.value === '_unassigned' ? 'No project' : (getProject(f.value)?.name || f.value)
+            display = `project: ${name}`
+          } else display = `${f.field}: ${f.value}`
+          return (
+            <span key={i} style={{ height: 22, padding: '0 6px 0 8px', display: 'flex', alignItems: 'center', gap: 4, borderRadius: 'var(--radius-sm)', background: 'var(--color-primary-subtle)', color: 'var(--color-text-accent)', fontSize: 11, fontWeight: 500 }}>
+              {display}
+              <X size={11} strokeWidth={2} style={{ cursor: 'pointer' }} onClick={() => removeFilter(i)} />
+            </span>
+          )
+        })}
         {filters.length > 0 && (
           <button onClick={() => setFilters([])} style={{ height: 22, padding: '0 6px', border: 'none', background: 'none', color: 'var(--color-text-tertiary)', cursor: 'pointer', fontSize: 11 }}>Clear all</button>
         )}
@@ -284,6 +316,16 @@ function MRFilterPanel({ mergeRequests, filters, onToggleFilter, onClear, onClos
           count: mergeRequests.filter(m => m.reviewAgentStatus === s).length,
           isActive: filters.some(f => f.field === 'steward' && f.value === s),
         })).filter(i => i.count > 0)
+      case 'project': {
+        const items = PROJECTS.map(p => ({
+          value: p.id, label: p.name,
+          count: mergeRequests.filter(m => m.projectId === p.id).length,
+          isActive: filters.some(f => f.field === 'project' && f.value === p.id),
+        }))
+        const noneCount = mergeRequests.filter(m => !m.projectId).length
+        if (noneCount > 0) items.push({ value: '_unassigned', label: 'No project', count: noneCount, isActive: filters.some(f => f.field === 'project' && f.value === '_unassigned') })
+        return items
+      }
       default: return []
     }
   }
@@ -294,6 +336,7 @@ function MRFilterPanel({ mergeRequests, filters, onToggleFilter, onClear, onClos
     { field: 'label', label: 'Labels' },
     { field: 'ciStatus', label: 'CI' },
     { field: 'steward', label: 'Reviewer' },
+    { field: 'project', label: 'Project' },
   ]
 
   return (
@@ -415,6 +458,50 @@ function MRDisplayPanel({ groupBy, onGroupByChange, sortField, onSortChange, sor
   )
 }
 
+// ── Project Filter Button ──
+function MRProjectFilterButton({ current, isOpen, onToggle, onSelect, onClose }: {
+  current: string | undefined
+  isOpen: boolean
+  onToggle: () => void
+  onSelect: (id: string | undefined) => void
+  onClose: () => void
+}) {
+  const project = getProject(current)
+  const label = project?.name ?? 'All projects'
+  const hasSelection = !!current
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={onToggle}
+        style={{
+          height: 24, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 6,
+          border: 'none', borderRadius: 'var(--radius-sm)',
+          background: hasSelection ? 'var(--color-primary-subtle)' : 'var(--color-surface)',
+          color: hasSelection ? 'var(--color-text-accent)' : 'var(--color-text-secondary)',
+          cursor: 'pointer', fontSize: 11, fontWeight: 500,
+        }}
+      >
+        {project ? (
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: project.color, flexShrink: 0 }} />
+        ) : (
+          <Layers size={11} strokeWidth={1.5} />
+        )}
+        {label}
+        <ChevronDown size={11} strokeWidth={1.5} />
+      </button>
+      {isOpen && (
+        <ProjectDropdown
+          current={current}
+          onSelect={onSelect}
+          onClose={onClose}
+          position={{ top: 28, left: 0 }}
+          allowClear
+        />
+      )}
+    </div>
+  )
+}
+
 // ── MR Row ──
 const reviewStateBorderColor: Record<ReviewState, string> = {
   approved: 'var(--color-success)',
@@ -479,6 +566,7 @@ function MRRow({ mr, onClick, searchQuery }: { mr: MergeRequestExtended; onClick
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        {mr.projectId && <ProjectTag projectId={mr.projectId} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
           <Plus size={11} strokeWidth={2} style={{ color: 'var(--color-success)' }} /><span style={{ color: 'var(--color-success)' }}>{mr.additions}</span>
           <Minus size={11} strokeWidth={2} style={{ color: 'var(--color-danger)', marginLeft: 4 }} /><span style={{ color: 'var(--color-danger)' }}>{mr.deletions}</span>

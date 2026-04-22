@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom'
 import {
   Check, Circle, CircleDot, CircleDashed, CheckCircle2, Clock,
   AlertTriangle, ArrowUp, ArrowDown, Minus, BarChart3,
-  User, Tag, Hash, X, Search,
+  User, Tag, Hash, X, Search, FolderKanban,
 } from 'lucide-react'
-import { KANBAN_COLUMNS, ASSIGNEES, LABELS, PRIORITIES, COMPLEXITY_LEVELS, TEAM_MEMBERS, getAssignees, type Task, type AppMode } from '../../mock-data'
+import { KANBAN_COLUMNS, ASSIGNEES, LABELS, PRIORITIES, COMPLEXITY_LEVELS, TEAM_MEMBERS, PROJECTS, getAssignees, getProject, type Task, type AppMode } from '../../mock-data'
 import { PresenceDot } from '../PresenceDot'
 
 // ── Shared dropdown wrapper (renders via portal to avoid clipping) ──
@@ -310,6 +310,84 @@ export function EstimateDropdown({ current, onSelect, onClose, position }: {
         />
       ))}
     </DropdownWrapper>
+  )
+}
+
+// ═══════════════════════════════════
+// ── Project Dropdown ──
+// ═══════════════════════════════════
+export function ProjectDropdown({ current, onSelect, onClose, position, allowClear = false, taskCounts }: {
+  current: string | undefined
+  onSelect: (projectId: string | undefined) => void
+  onClose: () => void
+  position?: React.CSSProperties
+  /** When true, an extra "No project" row lets the user clear the selection. */
+  allowClear?: boolean
+  taskCounts?: Record<string, number>
+}) {
+  const [search, setSearch] = useState('')
+  const filtered = PROJECTS.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+
+  return (
+    <DropdownWrapper onClose={onClose} style={{ position: 'absolute', ...position }}>
+      <SearchInput value={search} onChange={setSearch} placeholder="Change project..." />
+      {allowClear && (
+        <DropdownItem
+          label="No project"
+          icon={<FolderKanban size={14} strokeWidth={1.5} style={{ color: 'var(--color-text-tertiary)' }} />}
+          isActive={!current}
+          count={taskCounts?.['_none']}
+          onClick={() => { onSelect(undefined); onClose() }}
+        />
+      )}
+      {filtered.map(p => (
+        <DropdownItem
+          key={p.id}
+          label={p.name}
+          icon={<ProjectSwatch color={p.color} />}
+          isActive={current === p.id}
+          count={taskCounts?.[p.id]}
+          onClick={() => { onSelect(p.id); onClose() }}
+        />
+      ))}
+      {filtered.length === 0 && (
+        <div style={{ padding: 12, fontSize: 12, color: 'var(--color-text-tertiary)', textAlign: 'center' }}>No projects</div>
+      )}
+    </DropdownWrapper>
+  )
+}
+
+// ═══════════════════════════════════
+// ── Project visual helpers ──
+// ═══════════════════════════════════
+export function ProjectSwatch({ color, size = 10 }: { color: string; size?: number }) {
+  return (
+    <span style={{
+      width: size, height: size, borderRadius: 2,
+      background: color, flexShrink: 0, display: 'inline-block',
+    }} />
+  )
+}
+
+/** Compact project tag for list rows and cards. */
+export function ProjectTag({ projectId, size = 'sm' }: { projectId: string | undefined; size?: 'sm' | 'md' }) {
+  const project = getProject(projectId)
+  if (!project) return null
+  const fontSize = size === 'sm' ? 10 : 11
+  return (
+    <span
+      title={`Project: ${project.name}`}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: size === 'sm' ? '1px 6px' : '2px 8px',
+        borderRadius: 'var(--radius-sm)',
+        background: 'var(--color-surface)', color: 'var(--color-text-secondary)',
+        fontSize, fontWeight: 500, whiteSpace: 'nowrap',
+      }}
+    >
+      <ProjectSwatch color={project.color} size={size === 'sm' ? 7 : 8} />
+      {project.name}
+    </span>
   )
 }
 

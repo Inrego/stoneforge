@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { KANBAN_COLUMNS, PRIORITIES, ASSIGNEES, COMPLEXITY_LEVELS, TEAM_MEMBERS, currentUser, getAssignees, type Task } from '../mock-data'
+import { KANBAN_COLUMNS, PRIORITIES, ASSIGNEES, COMPLEXITY_LEVELS, TEAM_MEMBERS, currentUser, getAssignees, getProject, PROJECTS, type Task } from '../mock-data'
 import { mockAgentsExtended, mockRoleDefinitions } from './overlays/agents/agent-mock-data'
 import {
   CircleDot, GitMerge, AlertTriangle, AlertCircle, ArrowUp, ArrowDown, Minus, Play,
@@ -8,8 +8,8 @@ import {
   EyeOff, Eye, Plus, Settings, Search, UserCheck, ListChecks,
 } from 'lucide-react'
 import {
-  StatusDropdown, PriorityDropdown, AssigneeDropdown, LabelDropdown,
-  STATUS_ICONS, PriorityBarIcon,
+  StatusDropdown, PriorityDropdown, AssigneeDropdown, LabelDropdown, ProjectDropdown,
+  ProjectTag, STATUS_ICONS, PriorityBarIcon,
 } from './dropdowns/PropertyDropdowns'
 import { Tooltip } from './Tooltip'
 import { useTeamContext } from '../TeamContext'
@@ -30,7 +30,7 @@ interface KanbanBoardProps {
   initialPlanFilter?: { planId: string; planName: string } | null
 }
 
-type FilterField = 'priority' | 'assignee' | 'label' | 'status' | 'plan'
+type FilterField = 'priority' | 'assignee' | 'label' | 'status' | 'plan' | 'project'
 interface ActiveFilter { field: FilterField; value: string }
 type SortField = 'priority' | 'updatedAt' | 'title' | 'estimate'
 type GroupField = 'status' | 'priority' | 'assignee' | 'label'
@@ -53,6 +53,7 @@ export function KanbanBoard({ tasks, onSelectTask, viewMode, onToggleView, onUpd
   }, [initialPlanFilter])
 
   const [filterOpen, setFilterOpen] = useState(false)
+  const [projectFilterOpen, setProjectFilterOpen] = useState(false)
   const [sortField, setSortField] = useState<SortField>('priority')
   const [sortAsc, setSortAsc] = useState(true)
   const [groupBy, setGroupBy] = useState<GroupField>('status')
@@ -106,6 +107,11 @@ export function KanbanBoard({ tasks, onSelectTask, viewMode, onToggleView, onUpd
         case 'label': return task.labels.includes(f.value)
         case 'status': return task.status === f.value
         case 'plan': return task.planId === f.value || (task.parentId && tasks.find(p => p.id === task.parentId)?.planId === f.value)
+        case 'project': {
+          if (f.value === '_unassigned') return !task.projectId
+          const parent = task.parentId ? tasks.find(p => p.id === task.parentId) : undefined
+          return task.projectId === f.value || parent?.projectId === f.value
+        }
         default: return true
       }
     })
@@ -128,6 +134,17 @@ export function KanbanBoard({ tasks, onSelectTask, viewMode, onToggleView, onUpd
       const exists = prev.some(f => f.field === field && f.value === value)
       if (exists) return prev.filter(f => !(f.field === field && f.value === value))
       return [...prev, { field, value }]
+    })
+  }
+
+  // Single-select project filter, surfaced as its own toolbar dropdown so the
+  // "Project" selector is prominent. Setting undefined clears the project
+  // filter entirely.
+  const currentProjectFilter = filters.find(f => f.field === 'project')?.value
+  const selectProject = (projectId: string | undefined) => {
+    setFilters(prev => {
+      const withoutProject = prev.filter(f => f.field !== 'project')
+      return projectId ? [...withoutProject, { field: 'project' as FilterField, value: projectId }] : withoutProject
     })
   }
 
@@ -183,6 +200,15 @@ export function KanbanBoard({ tasks, onSelectTask, viewMode, onToggleView, onUpd
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', flexShrink: 0, borderBottom: '1px solid var(--color-border-subtle)', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>Tasks</span>
 
+        {/* Project filter — single-select dropdown, prominent at top of view */}
+        <ProjectFilterButton
+          current={currentProjectFilter}
+          isOpen={projectFilterOpen}
+          onToggle={() => setProjectFilterOpen(v => !v)}
+          onSelect={id => { selectProject(id); setProjectFilterOpen(false) }}
+          onClose={() => setProjectFilterOpen(false)}
+        />
+
         {/* "My Tasks" toggle — team-mode only */}
         {isTeamMode && (
           <div style={{ display: 'flex', gap: 2, background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', padding: 2 }}>
@@ -202,12 +228,20 @@ export function KanbanBoard({ tasks, onSelectTask, viewMode, onToggleView, onUpd
         )}
 
         {/* Active filters */}
-        {filters.map((f, i) => (
-          <span key={i} style={{ height: 22, padding: '0 6px 0 8px', display: 'flex', alignItems: 'center', gap: 4, borderRadius: 'var(--radius-sm)', background: 'var(--color-primary-subtle)', color: 'var(--color-text-accent)', fontSize: 11, fontWeight: 500 }}>
-            {f.field === 'plan' ? `plan: ${initialPlanFilter?.planName || f.value}` : `${f.field}: ${f.value}`}
-            <X size={11} strokeWidth={2} style={{ cursor: 'pointer' }} onClick={() => removeFilter(i)} />
-          </span>
-        ))}
+        {filters.map((f, i) => {
+          let display: string
+          if (f.field === 'plan') display = `plan: ${initialPlanFilter?.planName || f.value}`
+          else if (f.field === 'project') {
+            const name = f.value === '_unassigned' ? 'No project' : (getProject(f.value)?.name || f.value)
+            display = `project: ${name}`
+          } else display = `${f.field}: ${f.value}`
+          return (
+            <span key={i} style={{ height: 22, padding: '0 6px 0 8px', display: 'flex', alignItems: 'center', gap: 4, borderRadius: 'var(--radius-sm)', background: 'var(--color-primary-subtle)', color: 'var(--color-text-accent)', fontSize: 11, fontWeight: 500 }}>
+              {display}
+              <X size={11} strokeWidth={2} style={{ cursor: 'pointer' }} onClick={() => removeFilter(i)} />
+            </span>
+          )
+        })}
         {filters.length > 0 && (
           <button onClick={() => setFilters([])} style={{ height: 22, padding: '0 6px', border: 'none', background: 'none', color: 'var(--color-text-tertiary)', cursor: 'pointer', fontSize: 11 }}>Clear all</button>
         )}
@@ -495,6 +529,7 @@ function TaskCard({ task, allTasks, onClick, onContextMenu, isSelected, onToggle
             {openDropdown === 'status' && <StatusDropdown current={task.status} onSelect={s => { onUpdateTask(task.id, { status: s }); setOpenDropdown(null) }} onClose={() => setOpenDropdown(null)} position={{ top: 22, left: 0 }} disabledStatuses={getACGate(task)} />}
           </div>
           <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', fontWeight: 500 }}>{task.id}</span>
+          {task.projectId && <ProjectTag projectId={task.projectId} />}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {/* Concurrency claim indicator */}
@@ -626,6 +661,11 @@ function ListRow({ task, allTasks, onClick, onContextMenu, isSelected, onToggleS
         {openDropdown === 'status' && <StatusDropdown current={task.status} onSelect={s => { onUpdateTask(task.id, { status: s }); setOpenDropdown(null) }} onClose={() => setOpenDropdown(null)} position={{ top: 22, left: 0 }} disabledStatuses={getACGate(task)} />}
       </div>
       <span style={{ fontSize: 13, color: 'var(--color-text)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{task.title}</span>
+      {task.projectId && (
+        <span className="list-col-project" style={{ flexShrink: 0 }}>
+          <ProjectTag projectId={task.projectId} />
+        </span>
+      )}
       <div className="list-col-statuses" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         {subTasks.length > 0 && <SubTasksIndicator subTasks={subTasks} subDone={subDone} />}
         {task.claimedBy && <ClaimIndicator task={task} />}
@@ -873,6 +913,16 @@ function FilterPanel({ tasks, filters, onToggleFilter, onClear, onClose }: {
         topLevel.forEach(t => t.labels.forEach(l => labelCounts.set(l, (labelCounts.get(l) || 0) + 1)))
         return [...labelCounts.entries()].sort((a, b) => b[1] - a[1]).map(([l, c]) => ({ value: l, count: c, isActive: filters.some(f => f.field === 'label' && f.value === l) }))
       }
+      case 'project': {
+        const counts: { value: string; count: number; isActive: boolean }[] = PROJECTS.map(p => ({
+          value: p.id,
+          count: topLevel.filter(t => t.projectId === p.id).length,
+          isActive: filters.some(f => f.field === 'project' && f.value === p.id),
+        }))
+        const noneCount = topLevel.filter(t => !t.projectId).length
+        if (noneCount > 0) counts.push({ value: '_unassigned', count: noneCount, isActive: filters.some(f => f.field === 'project' && f.value === '_unassigned') })
+        return counts
+      }
       default: return []
     }
   }
@@ -883,11 +933,13 @@ function FilterPanel({ tasks, filters, onToggleFilter, onClear, onClose }: {
     { field: 'priority', label: 'Priority' },
     { field: 'assignee', label: 'Assignees' },
     { field: 'label', label: 'Labels' },
+    { field: 'project', label: 'Project' },
   ]
 
   const getDisplayName = (value: string) => {
     if (activeTab === 'status') return KANBAN_COLUMNS.find(c => c.id === value)?.label || value
     if (activeTab === 'priority') return value.charAt(0).toUpperCase() + value.slice(1)
+    if (activeTab === 'project') return value === '_unassigned' ? 'No project' : (getProject(value)?.name || value)
     if (value === '_unassigned') return 'Unassigned'
     return value
   }
@@ -1039,6 +1091,50 @@ function SortDropdown({ value, asc, onChange, onToggleDir }: { value: SortField;
           <div style={{ height: 1, background: 'var(--color-border-subtle)', margin: '4px 0' }} />
           <MenuItem label={asc ? 'Descending' : 'Ascending'} onClick={() => { onToggleDir(); setOpen(false) }} />
         </div>
+      )}
+    </div>
+  )
+}
+
+// ── Project Filter Button (top-of-view project selector) ──
+function ProjectFilterButton({ current, isOpen, onToggle, onSelect, onClose }: {
+  current: string | undefined
+  isOpen: boolean
+  onToggle: () => void
+  onSelect: (id: string | undefined) => void
+  onClose: () => void
+}) {
+  const project = getProject(current)
+  const label = project?.name ?? 'All projects'
+  const hasSelection = !!current
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={onToggle}
+        style={{
+          height: 24, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 6,
+          border: 'none', borderRadius: 'var(--radius-sm)',
+          background: hasSelection ? 'var(--color-primary-subtle)' : 'var(--color-surface)',
+          color: hasSelection ? 'var(--color-text-accent)' : 'var(--color-text-secondary)',
+          cursor: 'pointer', fontSize: 11, fontWeight: 500,
+        }}
+      >
+        {project ? (
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: project.color, flexShrink: 0 }} />
+        ) : (
+          <Layers size={11} strokeWidth={1.5} />
+        )}
+        {label}
+        <ChevronDown size={11} strokeWidth={1.5} />
+      </button>
+      {isOpen && (
+        <ProjectDropdown
+          current={current}
+          onSelect={onSelect}
+          onClose={onClose}
+          position={{ top: 28, left: 0 }}
+          allowClear
+        />
       )}
     </div>
   )

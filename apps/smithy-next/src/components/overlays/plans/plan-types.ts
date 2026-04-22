@@ -1,6 +1,6 @@
 export type PlanStatus = 'draft' | 'active' | 'completed' | 'cancelled'
 
-export type PlanFilterField = 'status' | 'tag' | 'creator'
+export type PlanFilterField = 'status' | 'tag' | 'creator' | 'project'
 export interface PlanActiveFilter { field: PlanFilterField; value: string }
 
 export type PlanSortField = 'name' | 'updated' | 'progress' | 'taskCount'

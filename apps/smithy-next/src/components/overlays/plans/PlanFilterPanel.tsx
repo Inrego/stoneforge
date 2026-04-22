@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import type { Plan } from '../../../mock-data'
+import { getProject, type Plan } from '../../../mock-data'
 import type { PlanFilterField, PlanActiveFilter } from './plan-types'
 import { PLAN_STATUS_CONFIG } from './plan-types'
 
@@ -14,6 +14,7 @@ const TABS: { field: PlanFilterField; label: string }[] = [
   { field: 'status', label: 'Status' },
   { field: 'tag', label: 'Tags' },
   { field: 'creator', label: 'Creator' },
+  { field: 'project', label: 'Project' },
 ]
 
 export function PlanFilterPanel({ plans, filters, onToggleFilter, onClose }: PlanFilterPanelProps) {
@@ -109,6 +110,9 @@ function getValuesForField(field: PlanFilterField, plans: Plan[]): { value: stri
       case 'creator':
         counts.set(plan.creator, (counts.get(plan.creator) || 0) + 1)
         break
+      case 'project':
+        counts.set(plan.projectId || '_unassigned', (counts.get(plan.projectId || '_unassigned') || 0) + 1)
+        break
     }
   }
   return Array.from(counts.entries()).map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count)
@@ -117,6 +121,9 @@ function getValuesForField(field: PlanFilterField, plans: Plan[]): { value: stri
 function formatValue(field: PlanFilterField, value: string): string {
   if (field === 'status') {
     return PLAN_STATUS_CONFIG[value as keyof typeof PLAN_STATUS_CONFIG]?.label || value
+  }
+  if (field === 'project') {
+    return value === '_unassigned' ? 'No project' : (getProject(value)?.name || value)
   }
   return value
 }

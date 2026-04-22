@@ -53,6 +53,7 @@ import {
   mockIncomingChanges,
   mockConflicts,
   mockDaemonState,
+  DEFAULT_PROJECT_ID,
   type Task,
   type PreviewEnvironment,
   type PreviewTab,
@@ -819,6 +820,7 @@ export default function App() {
               priority: partial.priority || 'medium',
               assignee: partial.assignee,
               labels: partial.labels || [],
+              projectId: partial.projectId || DEFAULT_PROJECT_ID,
               updatedAt: 'just now',
             }
             setTasks(prev => [newTask, ...prev])

@@ -120,6 +120,7 @@ export interface MergeRequestExtended {
   hasConflicts: boolean
   mergeGates: MergeGate[]
   labels: string[]
+  projectId?: string
   // Team-mode fields
   authorUserId?: string
   requestedReviewerIds?: string[]

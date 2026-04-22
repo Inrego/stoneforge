@@ -123,6 +123,31 @@ export function getAssignees(mode: AppMode): { name: string; avatar: string }[] 
   return base
 }
 
+// ── Projects registry ──
+// A project is a logical grouping that owns tasks, plans, and merge requests.
+// Workers register repos/workspaces against a project; views can be filtered
+// to a single project or a cross-project overview.
+
+export interface Project {
+  id: string
+  name: string
+  color: string
+}
+
+export const mockProjects: Project[] = [
+  { id: 'proj-cli', name: 'CLI', color: '#3b82f6' },
+  { id: 'proj-platform', name: 'Platform', color: '#10b981' },
+  { id: 'proj-design', name: 'Design System', color: '#8b5cf6' },
+  { id: 'proj-data', name: 'Data & Storage', color: '#f59e0b' },
+]
+
+export const PROJECTS = mockProjects
+export const DEFAULT_PROJECT_ID = mockProjects[0].id
+
+export function getProject(id: string | undefined): Project | undefined {
+  return id ? mockProjects.find(p => p.id === id) : undefined
+}
+
 // ── Core data types ──
 
 export interface AcceptanceCriterion {
@@ -155,6 +180,7 @@ export interface Task {
   blocked?: boolean
   activeDuration?: string
   updatedAt: string
+  projectId?: string
   planId?: string
   planName?: string
   whiteboardId?: string
@@ -418,36 +444,36 @@ export interface MergeRequest {
 // Automation/Workflow types now in components/overlays/automations/wf-types.ts
 
 export const mockTasks: Task[] = [
-  { id: 'SF-142', title: 'Implement OAuth2 PKCE flow for CLI authentication', description: 'Add PKCE-based OAuth2 flow so CLI users can authenticate without exposing client secrets. Should support the authorization code flow with S256 code challenge method.', status: 'in_progress', priority: 'high', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['auth', 'security'], estimate: 4, dueDate: 'Apr 5', subTaskIds: ['SF-142-1', 'SF-142-2'], sessionStatus: 'running', ciStatus: 'pending', mrStatus: 'none', branch: 'feat/oauth-pkce', agentName: 'Agent Delta', agentSessionId: 'a4', activeDuration: '14m 22s', updatedAt: '2 min ago', planId: 'plan-1', planName: 'CLI Authentication System', whiteboardId: 'wb-1', requiredRoleDefinitionTags: ['auth', 'security'], creatorId: 'user-adam', assigneeUserId: 'user-adam', claimedBy: { agentName: 'Agent Alpha', launchedByUserId: 'user-adam' }, watchers: ['user-adam', 'user-sarah', 'user-james'], acceptanceCriteria: [
+  { id: 'SF-142', title: 'Implement OAuth2 PKCE flow for CLI authentication', description: 'Add PKCE-based OAuth2 flow so CLI users can authenticate without exposing client secrets. Should support the authorization code flow with S256 code challenge method.', status: 'in_progress', priority: 'high', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['auth', 'security'], estimate: 4, dueDate: 'Apr 5', subTaskIds: ['SF-142-1', 'SF-142-2'], sessionStatus: 'running', ciStatus: 'pending', mrStatus: 'none', branch: 'feat/oauth-pkce', agentName: 'Agent Delta', agentSessionId: 'a4', activeDuration: '14m 22s', updatedAt: '2 min ago', projectId: 'proj-cli', planId: 'plan-1', planName: 'CLI Authentication System', whiteboardId: 'wb-1', requiredRoleDefinitionTags: ['auth', 'security'], creatorId: 'user-adam', assigneeUserId: 'user-adam', claimedBy: { agentName: 'Agent Alpha', launchedByUserId: 'user-adam' }, watchers: ['user-adam', 'user-sarah', 'user-james'], acceptanceCriteria: [
     { id: 'ac-142-1', text: 'Generate code verifier + challenge', checked: true },
     { id: 'ac-142-2', text: 'Open browser for auth', checked: false },
     { id: 'ac-142-3', text: 'Handle callback with token exchange', checked: false },
     { id: 'ac-142-4', text: 'Store refresh token securely', checked: false },
   ] },
-  { id: 'SF-142-1', title: 'Generate PKCE challenge and verifier', status: 'done', priority: 'medium', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['auth'], estimate: 1, parentId: 'SF-142', updatedAt: '30 min ago', whiteboardId: 'wb-1' },
-  { id: 'SF-142-2', title: 'Implement token exchange callback handler', status: 'in_progress', priority: 'medium', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['auth'], estimate: 3, parentId: 'SF-142', sessionStatus: 'running', branch: 'feat/oauth-pkce', agentName: 'Agent Delta', agentSessionId: 'a4', activeDuration: '4m 51s', updatedAt: '5 min ago', whiteboardId: 'wb-1' },
-  { id: 'SF-139', title: 'Add WebSocket reconnection with exponential backoff', description: 'The WebSocket connection drops silently on network changes. Implement automatic reconnection with exponential backoff and jitter to prevent thundering herd.', status: 'in_review', priority: 'medium', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['networking'], estimate: 3, dueDate: 'Apr 3', sessionStatus: 'idle', ciStatus: 'pass', mrStatus: 'needs_review', branch: 'fix/ws-reconnect', agentName: 'Agent Beta', agentSessionId: 'a5', reviewAgentName: 'Agent Zeta', reviewAgentSessionId: 'a6', activeDuration: '42m 08s', updatedAt: '15 min ago', whiteboardId: 'wb-3', planId: 'plan-3', planName: 'WebSocket Reliability', creatorId: 'user-sarah', assigneeUserId: 'user-sarah', claimedBy: { agentName: 'Agent Beta', launchedByUserId: 'user-sarah' }, watchers: ['user-sarah', 'user-adam'], acceptanceCriteria: [
+  { id: 'SF-142-1', title: 'Generate PKCE challenge and verifier', status: 'done', priority: 'medium', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['auth'], estimate: 1, parentId: 'SF-142', updatedAt: '30 min ago', projectId: 'proj-cli', whiteboardId: 'wb-1' },
+  { id: 'SF-142-2', title: 'Implement token exchange callback handler', status: 'in_progress', priority: 'medium', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['auth'], estimate: 3, parentId: 'SF-142', sessionStatus: 'running', branch: 'feat/oauth-pkce', agentName: 'Agent Delta', agentSessionId: 'a4', activeDuration: '4m 51s', updatedAt: '5 min ago', projectId: 'proj-cli', whiteboardId: 'wb-1' },
+  { id: 'SF-139', title: 'Add WebSocket reconnection with exponential backoff', description: 'The WebSocket connection drops silently on network changes. Implement automatic reconnection with exponential backoff and jitter to prevent thundering herd.', status: 'in_review', priority: 'medium', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['networking'], estimate: 3, dueDate: 'Apr 3', sessionStatus: 'idle', ciStatus: 'pass', mrStatus: 'needs_review', branch: 'fix/ws-reconnect', agentName: 'Agent Beta', agentSessionId: 'a5', reviewAgentName: 'Agent Zeta', reviewAgentSessionId: 'a6', activeDuration: '42m 08s', updatedAt: '15 min ago', projectId: 'proj-platform', whiteboardId: 'wb-3', planId: 'plan-3', planName: 'WebSocket Reliability', creatorId: 'user-sarah', assigneeUserId: 'user-sarah', claimedBy: { agentName: 'Agent Beta', launchedByUserId: 'user-sarah' }, watchers: ['user-sarah', 'user-adam'], acceptanceCriteria: [
     { id: 'ac-139-1', text: 'Reconnects automatically after network drop', checked: true },
     { id: 'ac-139-2', text: 'Uses exponential backoff with jitter', checked: true },
     { id: 'ac-139-3', text: 'Caps retry delay at 30 seconds', checked: true },
     { id: 'ac-139-4', text: 'Emits connection state events to subscribers', checked: false },
     { id: 'ac-139-5', text: 'Queues messages sent while disconnected', checked: false },
   ] },
-  { id: 'SF-145', title: 'Migrate task storage to SQLite with WAL mode', description: 'Replace the JSON file-based task store with SQLite using WAL mode for better concurrent read performance. Include migration script for existing data.', status: 'in_progress', priority: 'high', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['database', 'performance'], estimate: 3, dueDate: 'Apr 8', sessionStatus: 'running', ciStatus: 'none', mrStatus: 'none', branch: 'feat/sqlite-wal', agentName: 'Agent Delta', agentSessionId: 'a4', activeDuration: '5m 12s', updatedAt: '5 min ago', planId: 'plan-2', planName: 'Storage Migration', requiredRoleDefinitionTags: ['database'], claimedBy: { agentName: 'Agent Alpha', launchedByUserId: 'user-adam' }, watchers: ['user-adam'] },
-  { id: 'SF-137', title: 'Fix terminal resize event not propagating to PTY', description: 'When the terminal panel is resized, the PTY dimensions are not updated, causing line wrapping issues. The resize handler needs to propagate cols/rows to the PTY subprocess.', status: 'in_review', priority: 'urgent', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['bug', 'terminal'], estimate: 1, sessionStatus: 'idle', ciStatus: 'fail', mrStatus: 'open', branch: 'fix/pty-resize', agentName: 'Agent Beta', agentSessionId: 'a5', reviewAgentName: 'Agent Zeta', reviewAgentSessionId: 'a7', activeDuration: '1h 03m', updatedAt: '1 hr ago', planId: 'plan-6', planName: 'Terminal PTY Fixes', acceptanceCriteria: [
+  { id: 'SF-145', title: 'Migrate task storage to SQLite with WAL mode', description: 'Replace the JSON file-based task store with SQLite using WAL mode for better concurrent read performance. Include migration script for existing data.', status: 'in_progress', priority: 'high', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['database', 'performance'], estimate: 3, dueDate: 'Apr 8', sessionStatus: 'running', ciStatus: 'none', mrStatus: 'none', branch: 'feat/sqlite-wal', agentName: 'Agent Delta', agentSessionId: 'a4', activeDuration: '5m 12s', updatedAt: '5 min ago', projectId: 'proj-data', planId: 'plan-2', planName: 'Storage Migration', requiredRoleDefinitionTags: ['database'], claimedBy: { agentName: 'Agent Alpha', launchedByUserId: 'user-adam' }, watchers: ['user-adam'] },
+  { id: 'SF-137', title: 'Fix terminal resize event not propagating to PTY', description: 'When the terminal panel is resized, the PTY dimensions are not updated, causing line wrapping issues. The resize handler needs to propagate cols/rows to the PTY subprocess.', status: 'in_review', priority: 'urgent', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['bug', 'terminal'], estimate: 1, sessionStatus: 'idle', ciStatus: 'fail', mrStatus: 'open', branch: 'fix/pty-resize', agentName: 'Agent Beta', agentSessionId: 'a5', reviewAgentName: 'Agent Zeta', reviewAgentSessionId: 'a7', activeDuration: '1h 03m', updatedAt: '1 hr ago', projectId: 'proj-cli', planId: 'plan-6', planName: 'Terminal PTY Fixes', acceptanceCriteria: [
     { id: 'ac-137-1', text: 'PTY cols/rows update on terminal panel resize', checked: true },
     { id: 'ac-137-2', text: 'Line wrapping correct after resize', checked: true },
     { id: 'ac-137-3', text: 'No visual glitch on rapid resize', checked: true },
     { id: 'ac-137-4', text: 'Works with split terminal panes', checked: true },
   ] },
-  { id: 'SF-150', title: 'Design system: migrate to Inter font + new token scale', description: 'Update the design system to use Inter as the primary typeface and condense the color token palette for the Linear-inspired redesign.', status: 'todo', priority: 'medium', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['design', 'ui'], estimate: 3, dueDate: 'Apr 10', blocked: true, updatedAt: '3 hr ago', dependencyIds: ['SF-142', 'SF-155'], requiredRoleDefinitionTags: ['frontend', 'react'], planId: 'plan-4', planName: 'Design System Refresh', creatorId: 'user-james', assigneeUserId: 'user-james' },
-  { id: 'SF-151', title: 'Add diff viewer with syntax highlighting', status: 'todo', priority: 'high', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['editor', 'ui'], estimate: 4, blocked: true, updatedAt: '4 hr ago', dependencyIds: ['SF-145'], planId: 'plan-4', planName: 'Design System Refresh' },
-  { id: 'SF-148', title: 'Implement agent session resume from checkpoint', status: 'todo', priority: 'medium', labels: ['agents'], estimate: 3, updatedAt: '5 hr ago', requiredRoleDefinitionTags: ['implementation', 'coding'], requiredAgentTags: ['thorough'], planId: 'plan-5', planName: 'Agent Session Management' },
-  { id: 'SF-153', title: 'Add CI/CD pipeline visualization', status: 'backlog', priority: 'low', labels: ['ci-cd', 'ui'], estimate: 3, updatedAt: '1 day ago' },
-  { id: 'SF-154', title: 'Support custom workflow triggers via webhooks', status: 'backlog', priority: 'medium', labels: ['automations'], estimate: 4, updatedAt: '1 day ago' },
-  { id: 'SF-155', title: 'Add dark mode contrast accessibility audit', status: 'backlog', priority: 'low', labels: ['a11y'], estimate: 1, updatedAt: '2 days ago' },
-  { id: 'SF-136', title: 'Refactor agent pool connection management', status: 'done', priority: 'medium', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['agents', 'refactor'], estimate: 3, ciStatus: 'pass', mrStatus: 'merged', updatedAt: '1 day ago' },
-  { id: 'SF-134', title: 'Add rate limit banner with wake timer', status: 'todo', priority: 'high', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['ui'], estimate: 3, updatedAt: '2 days ago' },
+  { id: 'SF-150', title: 'Design system: migrate to Inter font + new token scale', description: 'Update the design system to use Inter as the primary typeface and condense the color token palette for the Linear-inspired redesign.', status: 'todo', priority: 'medium', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['design', 'ui'], estimate: 3, dueDate: 'Apr 10', blocked: true, updatedAt: '3 hr ago', dependencyIds: ['SF-142', 'SF-155'], requiredRoleDefinitionTags: ['frontend', 'react'], projectId: 'proj-design', planId: 'plan-4', planName: 'Design System Refresh', creatorId: 'user-james', assigneeUserId: 'user-james' },
+  { id: 'SF-151', title: 'Add diff viewer with syntax highlighting', status: 'todo', priority: 'high', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['editor', 'ui'], estimate: 4, blocked: true, updatedAt: '4 hr ago', dependencyIds: ['SF-145'], projectId: 'proj-design', planId: 'plan-4', planName: 'Design System Refresh' },
+  { id: 'SF-148', title: 'Implement agent session resume from checkpoint', status: 'todo', priority: 'medium', labels: ['agents'], estimate: 3, updatedAt: '5 hr ago', requiredRoleDefinitionTags: ['implementation', 'coding'], requiredAgentTags: ['thorough'], projectId: 'proj-platform', planId: 'plan-5', planName: 'Agent Session Management' },
+  { id: 'SF-153', title: 'Add CI/CD pipeline visualization', status: 'backlog', priority: 'low', labels: ['ci-cd', 'ui'], estimate: 3, updatedAt: '1 day ago', projectId: 'proj-platform' },
+  { id: 'SF-154', title: 'Support custom workflow triggers via webhooks', status: 'backlog', priority: 'medium', labels: ['automations'], estimate: 4, updatedAt: '1 day ago', projectId: 'proj-platform' },
+  { id: 'SF-155', title: 'Add dark mode contrast accessibility audit', status: 'backlog', priority: 'low', labels: ['a11y'], estimate: 1, updatedAt: '2 days ago', projectId: 'proj-design' },
+  { id: 'SF-136', title: 'Refactor agent pool connection management', status: 'done', priority: 'medium', assignee: { name: 'Agent Alpha', avatar: 'AA' }, labels: ['agents', 'refactor'], estimate: 3, ciStatus: 'pass', mrStatus: 'merged', updatedAt: '1 day ago', projectId: 'proj-platform' },
+  { id: 'SF-134', title: 'Add rate limit banner with wake timer', status: 'todo', priority: 'high', assignee: { name: 'Agent Beta', avatar: 'AB' }, labels: ['ui'], estimate: 3, updatedAt: '2 days ago', projectId: 'proj-design' },
 ]
 
 export const mockDirectors: DirectorSession[] = [
@@ -486,6 +512,7 @@ export const mockMergeRequestsExtended: MergeRequestExtended[] = [
       { label: 'No merge conflicts', passed: true, required: true },
     ],
     labels: ['database', 'performance'],
+    projectId: 'proj-data',
   },
   {
     id: 'MR-42', title: 'feat: Add WebSocket reconnection with exponential backoff', description: 'The WebSocket connection drops silently on network changes. This implements automatic reconnection with exponential backoff and jitter to prevent thundering herd.', branch: 'fix/ws-reconnect', targetBranch: 'main', author: 'Agent Beta', status: 'open', isDraft: false, ciStatus: 'pass',
@@ -505,6 +532,7 @@ export const mockMergeRequestsExtended: MergeRequestExtended[] = [
       { label: 'Review agent approved', passed: true, required: false },
     ],
     labels: ['networking'],
+    projectId: 'proj-platform',
   },
   {
     id: 'MR-41', title: 'fix: Terminal resize event not propagating to PTY', description: 'When the terminal panel is resized, the PTY dimensions are not updated, causing line wrapping issues.', branch: 'fix/pty-resize', targetBranch: 'main', author: 'Agent Beta', status: 'open', isDraft: false, ciStatus: 'fail',
@@ -522,6 +550,7 @@ export const mockMergeRequestsExtended: MergeRequestExtended[] = [
       { label: 'No merge conflicts', passed: false, required: true },
     ],
     labels: ['bug', 'terminal'],
+    projectId: 'proj-cli',
   },
   {
     id: 'MR-40', title: 'refactor: Agent pool connection management', description: 'Refactored the agent pool to use a connection manager pattern with automatic health checks and reconnection.', branch: 'refactor/agent-pool', targetBranch: 'main', author: 'Agent Alpha', status: 'merged', isDraft: false, ciStatus: 'pass',
@@ -538,6 +567,7 @@ export const mockMergeRequestsExtended: MergeRequestExtended[] = [
       { label: 'No merge conflicts', passed: true, required: true },
     ],
     labels: ['agents', 'refactor'],
+    projectId: 'proj-platform',
   },
   {
     id: 'MR-39', title: 'feat: Rate limit banner with wake timer', description: 'Adds a banner that appears when API rate limits are hit, showing a countdown timer until the limit resets.', branch: 'feat/rate-limit-banner', targetBranch: 'main', author: 'Agent Beta', status: 'merged', isDraft: false, ciStatus: 'pass',
@@ -554,6 +584,7 @@ export const mockMergeRequestsExtended: MergeRequestExtended[] = [
       { label: 'No merge conflicts', passed: true, required: true },
     ],
     labels: ['ui'],
+    projectId: 'proj-design',
   },
 ]
 
@@ -1740,6 +1771,7 @@ export interface Plan {
   creator: string
   createdAt: string
   updatedAt: string
+  projectId?: string
 }
 
 export const mockPlans: Plan[] = [
@@ -1754,6 +1786,7 @@ export const mockPlans: Plan[] = [
     creator: 'Agent Alpha',
     createdAt: 'Mar 28',
     updatedAt: '2 min ago',
+    projectId: 'proj-cli',
   },
   {
     id: 'plan-2',
@@ -1765,6 +1798,7 @@ export const mockPlans: Plan[] = [
     creator: 'Agent Alpha',
     createdAt: 'Apr 1',
     updatedAt: '5 min ago',
+    projectId: 'proj-data',
   },
   {
     id: 'plan-3',
@@ -1777,6 +1811,7 @@ export const mockPlans: Plan[] = [
     creator: 'Agent Beta',
     createdAt: 'Mar 20',
     updatedAt: '15 min ago',
+    projectId: 'proj-platform',
   },
   {
     id: 'plan-4',
@@ -1788,6 +1823,7 @@ export const mockPlans: Plan[] = [
     creator: 'Agent Beta',
     createdAt: 'Apr 5',
     updatedAt: '3 hr ago',
+    projectId: 'proj-design',
   },
   {
     id: 'plan-5',
@@ -1799,6 +1835,7 @@ export const mockPlans: Plan[] = [
     creator: 'Agent Alpha',
     createdAt: 'Apr 8',
     updatedAt: '5 hr ago',
+    projectId: 'proj-platform',
   },
   {
     id: 'plan-6',
@@ -1810,6 +1847,7 @@ export const mockPlans: Plan[] = [
     creator: 'Agent Beta',
     createdAt: 'Mar 15',
     updatedAt: '1 hr ago',
+    projectId: 'proj-cli',
   },
 ]
 

@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { X, Maximize2, Minimize2, Paperclip } from 'lucide-react'
-import { type Task, ASSIGNEES } from '../mock-data'
+import { X, Maximize2, Minimize2, Paperclip, FolderKanban } from 'lucide-react'
+import { type Task, ASSIGNEES, getProject, DEFAULT_PROJECT_ID } from '../mock-data'
 import {
-  StatusDropdown, PriorityDropdown, AssigneeDropdown, LabelDropdown,
-  PropertyPill, STATUS_ICONS, PriorityBarIcon,
+  StatusDropdown, PriorityDropdown, AssigneeDropdown, LabelDropdown, ProjectDropdown,
+  ProjectSwatch, PropertyPill, STATUS_ICONS, PriorityBarIcon,
 } from './dropdowns/PropertyDropdowns'
 import { KANBAN_COLUMNS } from '../mock-data'
 
@@ -19,15 +19,20 @@ export function CreateTaskDialog({ onClose, onCreate }: CreateTaskDialogProps) {
   const [priority, setPriority] = useState<Task['priority']>('medium')
   const [assignee, setAssignee] = useState<{ name: string; avatar: string } | undefined>()
   const [labels, setLabels] = useState<string[]>([])
+  // Project is required — default to the first registered project so a new
+  // task is always owned. Users can change it before creating.
+  const [projectId, setProjectId] = useState<string>(DEFAULT_PROJECT_ID)
   const [createMore, setCreateMore] = useState(false)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
   const [fullScreen, setFullScreen] = useState(false)
 
   const statusInfo = STATUS_ICONS[status] || STATUS_ICONS.todo
+  const project = getProject(projectId)
+  const canCreate = !!title.trim() && !!projectId
 
   const handleCreate = () => {
-    if (!title.trim()) return
-    onCreate({ title, description: description || undefined, status, priority, assignee, labels })
+    if (!canCreate) return
+    onCreate({ title, description: description || undefined, status, priority, assignee, labels, projectId })
     if (createMore) {
       setTitle('')
       setDescription('')
@@ -80,7 +85,7 @@ export function CreateTaskDialog({ onClose, onCreate }: CreateTaskDialogProps) {
             placeholder="Task title"
             autoFocus
             style={{ width: '100%', background: 'none', border: 'none', fontSize: 18, fontWeight: 500, color: 'var(--color-text)', outline: 'none', marginBottom: 8 }}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreate() } }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && canCreate) { e.preventDefault(); handleCreate() } }}
           />
           <textarea
             value={description}
@@ -92,6 +97,26 @@ export function CreateTaskDialog({ onClose, onCreate }: CreateTaskDialogProps) {
 
         {/* Property pills */}
         <div style={{ padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', borderTop: '1px solid var(--color-border-subtle)' }}>
+          {/* Project (required) */}
+          <div style={{ position: 'relative' }}>
+            <PropertyPill
+              icon={project
+                ? <ProjectSwatch color={project.color} size={10} />
+                : <FolderKanban size={12} strokeWidth={1.5} style={{ color: 'var(--color-danger)' }} />}
+              label={project?.name || 'Select project *'}
+              color={project ? undefined : 'var(--color-danger)'}
+              onClick={() => setOpenDropdown(openDropdown === 'project' ? null : 'project')}
+            />
+            {openDropdown === 'project' && (
+              <ProjectDropdown
+                current={projectId}
+                onSelect={id => { if (id) setProjectId(id); setOpenDropdown(null) }}
+                onClose={() => setOpenDropdown(null)}
+                position={{ bottom: 32, left: 0 }}
+              />
+            )}
+          </div>
+
           {/* Status */}
           <div style={{ position: 'relative' }}>
             <PropertyPill icon={<span style={{ color: statusInfo.color }}>{statusInfo.icon}</span>} label={KANBAN_COLUMNS.find(c => c.id === status)?.label || ''} onClick={() => setOpenDropdown(openDropdown === 'status' ? null : 'status')} />
@@ -136,12 +161,17 @@ export function CreateTaskDialog({ onClose, onCreate }: CreateTaskDialogProps) {
               </div>
               Create more
             </label>
-            <button onClick={handleCreate} disabled={!title.trim()} style={{
-              height: 32, padding: '0 16px', border: 'none', borderRadius: 'var(--radius-sm)',
-              background: title.trim() ? 'var(--color-primary)' : 'var(--color-surface-active)',
-              color: title.trim() ? 'white' : 'var(--color-text-tertiary)',
-              cursor: title.trim() ? 'pointer' : 'default', fontSize: 13, fontWeight: 500,
-            }}>
+            <button
+              onClick={handleCreate}
+              disabled={!canCreate}
+              title={!projectId ? 'A project is required' : undefined}
+              style={{
+                height: 32, padding: '0 16px', border: 'none', borderRadius: 'var(--radius-sm)',
+                background: canCreate ? 'var(--color-primary)' : 'var(--color-surface-active)',
+                color: canCreate ? 'white' : 'var(--color-text-tertiary)',
+                cursor: canCreate ? 'pointer' : 'default', fontSize: 13, fontWeight: 500,
+              }}
+            >
               Create task
             </button>
           </div>

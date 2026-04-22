@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
-import { Search, Filter, SlidersHorizontal, LayoutGrid, List, X, ArrowUp, ArrowDown, Check } from 'lucide-react'
-import { mockTasks, type Plan } from '../../../mock-data'
+import { Search, Filter, SlidersHorizontal, LayoutGrid, List, X, ArrowUp, ArrowDown, Check, Layers, ChevronDown } from 'lucide-react'
+import { mockTasks, getProject, type Plan } from '../../../mock-data'
+import { ProjectDropdown, ProjectTag } from '../../dropdowns/PropertyDropdowns'
 import { PlanFilterPanel } from './PlanFilterPanel'
 import { PLAN_STATUS_CONFIG, PLAN_KANBAN_COLUMNS } from './plan-types'
 import type { PlanActiveFilter, PlanFilterField, PlanSortField, PlanGroupField, PlanViewMode } from './plan-types'
@@ -30,6 +31,7 @@ export function PlanListView({ plans, onSelectPlan }: PlanListViewProps) {
   const [searchExpanded, setSearchExpanded] = useState(false)
   const [filters, setFilters] = useState<PlanActiveFilter[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
+  const [projectFilterOpen, setProjectFilterOpen] = useState(false)
   const [displayOpen, setDisplayOpen] = useState(false)
   const [groupBy, setGroupBy] = useState<PlanGroupField>('status')
   const [sortField, setSortField] = useState<PlanSortField>('updated')
@@ -43,6 +45,14 @@ export function PlanListView({ plans, onSelectPlan }: PlanListViewProps) {
       const exists = prev.some(f => f.field === field && f.value === value)
       if (exists) return prev.filter(f => !(f.field === field && f.value === value))
       return [...prev, { field, value }]
+    })
+  }, [])
+
+  const currentProjectFilter = filters.find(f => f.field === 'project')?.value
+  const selectProject = useCallback((projectId: string | undefined) => {
+    setFilters(prev => {
+      const withoutProject = prev.filter(f => f.field !== 'project')
+      return projectId ? [...withoutProject, { field: 'project' as PlanFilterField, value: projectId }] : withoutProject
     })
   }, [])
 
@@ -67,6 +77,11 @@ export function PlanListView({ plans, onSelectPlan }: PlanListViewProps) {
         case 'status': result = result.filter(p => p.status === f.value); break
         case 'tag': result = result.filter(p => p.tags.includes(f.value)); break
         case 'creator': result = result.filter(p => p.creator === f.value); break
+        case 'project':
+          result = f.value === '_unassigned'
+            ? result.filter(p => !p.projectId)
+            : result.filter(p => p.projectId === f.value)
+          break
       }
     }
 
@@ -116,17 +131,33 @@ export function PlanListView({ plans, onSelectPlan }: PlanListViewProps) {
       }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text)' }}>Plans</span>
 
+        {/* Project filter — single-select dropdown, prominent at top of view */}
+        <PlanProjectFilterButton
+          current={currentProjectFilter}
+          isOpen={projectFilterOpen}
+          onToggle={() => setProjectFilterOpen(v => !v)}
+          onSelect={id => { selectProject(id); setProjectFilterOpen(false) }}
+          onClose={() => setProjectFilterOpen(false)}
+        />
+
         {/* Active filter pills */}
-        {filters.map((f, i) => (
-          <span key={i} style={{
-            height: 22, padding: '0 6px 0 8px', display: 'flex', alignItems: 'center', gap: 4,
-            borderRadius: 'var(--radius-sm)', background: 'var(--color-primary-subtle)',
-            color: 'var(--color-text-accent)', fontSize: 11, fontWeight: 500,
-          }}>
-            {f.field}: {f.value}
-            <X size={11} strokeWidth={2} style={{ cursor: 'pointer' }} onClick={() => toggleFilter(f.field, f.value)} />
-          </span>
-        ))}
+        {filters.map((f, i) => {
+          let display: string
+          if (f.field === 'project') {
+            const name = f.value === '_unassigned' ? 'No project' : (getProject(f.value)?.name || f.value)
+            display = `project: ${name}`
+          } else display = `${f.field}: ${f.value}`
+          return (
+            <span key={i} style={{
+              height: 22, padding: '0 6px 0 8px', display: 'flex', alignItems: 'center', gap: 4,
+              borderRadius: 'var(--radius-sm)', background: 'var(--color-primary-subtle)',
+              color: 'var(--color-text-accent)', fontSize: 11, fontWeight: 500,
+            }}>
+              {display}
+              <X size={11} strokeWidth={2} style={{ cursor: 'pointer' }} onClick={() => toggleFilter(f.field, f.value)} />
+            </span>
+          )
+        })}
         {filters.length > 0 && (
           <button onClick={() => setFilters([])} style={{
             height: 22, padding: '0 6px', border: 'none', background: 'none',
@@ -310,6 +341,13 @@ function PlanRow({ plan, onClick }: { plan: Plan; onClick: () => void }) {
         {progress.done}/{progress.total}
       </span>
 
+      {/* Project */}
+      {plan.projectId && (
+        <span style={{ flexShrink: 0 }}>
+          <ProjectTag projectId={plan.projectId} />
+        </span>
+      )}
+
       {/* Tags */}
       <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
         {plan.tags.slice(0, 2).map(tag => (
@@ -398,9 +436,10 @@ function PlanCard({ plan, onClick }: { plan: Plan; onClick: () => void }) {
         </span>
       </div>
 
-      {/* Tags */}
-      {plan.tags.length > 0 && (
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      {/* Project + Tags */}
+      {(plan.projectId || plan.tags.length > 0) && (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+          {plan.projectId && <ProjectTag projectId={plan.projectId} />}
           {plan.tags.slice(0, 3).map(tag => (
             <span key={tag} style={{
               fontSize: 10, padding: '1px 6px', borderRadius: 'var(--radius-sm)',
@@ -412,6 +451,50 @@ function PlanCard({ plan, onClick }: { plan: Plan; onClick: () => void }) {
         </div>
       )}
     </button>
+  )
+}
+
+// ── Project Filter Button ──
+function PlanProjectFilterButton({ current, isOpen, onToggle, onSelect, onClose }: {
+  current: string | undefined
+  isOpen: boolean
+  onToggle: () => void
+  onSelect: (id: string | undefined) => void
+  onClose: () => void
+}) {
+  const project = getProject(current)
+  const label = project?.name ?? 'All projects'
+  const hasSelection = !!current
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={onToggle}
+        style={{
+          height: 24, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 6,
+          border: 'none', borderRadius: 'var(--radius-sm)',
+          background: hasSelection ? 'var(--color-primary-subtle)' : 'var(--color-surface)',
+          color: hasSelection ? 'var(--color-text-accent)' : 'var(--color-text-secondary)',
+          cursor: 'pointer', fontSize: 11, fontWeight: 500,
+        }}
+      >
+        {project ? (
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: project.color, flexShrink: 0 }} />
+        ) : (
+          <Layers size={11} strokeWidth={1.5} />
+        )}
+        {label}
+        <ChevronDown size={11} strokeWidth={1.5} />
+      </button>
+      {isOpen && (
+        <ProjectDropdown
+          current={current}
+          onSelect={onSelect}
+          onClose={onClose}
+          position={{ top: 28, left: 0 }}
+          allowClear
+        />
+      )}
+    </div>
   )
 }
 
