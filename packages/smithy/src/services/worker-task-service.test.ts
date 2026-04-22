@@ -476,6 +476,7 @@ describe('WorkerTaskService', () => {
         metadata: {
           agent: {
             agentRole: 'director',
+            projectId: 'proj-test',
           },
         },
       });

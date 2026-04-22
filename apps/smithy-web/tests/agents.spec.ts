@@ -755,6 +755,7 @@ test.describe('TB-O26: Agent Workspace View', () => {
         metadata: {
           agent: {
             agentRole: 'director',
+            projectId: 'proj-test',
             sessionStatus: 'idle',
           },
         },
