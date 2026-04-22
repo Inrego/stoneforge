@@ -6,8 +6,8 @@
 
 import { createStorage, initializeSchema } from '@stoneforge/storage';
 import type { StorageBackend } from '@stoneforge/storage';
-import { createQuarryAPI, createInboxService, createSyncService, createAutoExportService, loadConfig, setValue, getValue } from '@stoneforge/quarry';
-import type { QuarryAPI, InboxService, SyncService, AutoExportService } from '@stoneforge/quarry';
+import { createQuarryAPI, createInboxService, createSyncService, createAutoExportService, loadConfig, setValue, getValue, tryLoadProjectRegistryService } from '@stoneforge/quarry';
+import type { QuarryAPI, InboxService, SyncService, AutoExportService, ProjectRegistryService } from '@stoneforge/quarry';
 import { createSessionMessageService, type SessionMessageService } from './services/session-messages.js';
 import type { EntityId, ElementId, Playbook } from '@stoneforge/core';
 import {
@@ -107,6 +107,14 @@ export interface Services {
   demoModeService: DemoModeService;
   approvalService: ApprovalService;
   storageBackend: StorageBackend;
+  /**
+   * Global Stoneforge projects registry backed by
+   * `~/.stoneforge/projects.json`. `null` when the registry file exists
+   * but could not be loaded (malformed JSON, unsupported version, ...) —
+   * the server still boots so the rest of the dashboard works, and the
+   * Projects page surfaces an error.
+   */
+  projectRegistry: ProjectRegistryService | null;
 }
 
 export async function initializeServices(options: ServicesOptions = {}): Promise<Services> {
@@ -125,6 +133,25 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
   const api = createQuarryAPI(storageBackend);
   const orchestratorApi = createOrchestratorAPI(storageBackend);
   const agentRegistry = createAgentRegistry(api);
+
+  // Load the global projects registry (~/.stoneforge/projects.json). The
+  // file is optional: a missing file yields an empty registry. A malformed
+  // file is logged and the service is set to null so the dashboard can
+  // still boot and the Projects page can surface the error to the user.
+  const projectRegistryResult = tryLoadProjectRegistryService();
+  let projectRegistry: ProjectRegistryService | null;
+  if ('service' in projectRegistryResult) {
+    projectRegistry = projectRegistryResult.service;
+    const count = projectRegistry.list().length;
+    logger.info(
+      `Loaded projects registry (${count} project${count === 1 ? '' : 's'}): ${projectRegistry.path}`
+    );
+  } else {
+    projectRegistry = null;
+    logger.warn(
+      `Failed to load projects registry, continuing without it: ${projectRegistryResult.error.message}`
+    );
+  }
 
   const claudePath = getClaudePath();
   logger.info(`Using Claude CLI at: ${claudePath}`);
@@ -603,5 +630,6 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
     demoModeService,
     approvalService,
     storageBackend,
+    projectRegistry,
   };
 }

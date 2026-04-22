@@ -14,3 +14,4 @@ export * from './usePools';
 export * from './useLatestSessionMessages';
 export * from './useProviderMetrics';
 export * from './useAgentTokens';
+export * from './useProjects';
