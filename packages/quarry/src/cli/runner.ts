@@ -292,7 +292,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<neve
   const { aliasCommand } = await import('./commands/alias.js');
   const { installCommand } = await import('./commands/install.js');
   const { serveCommand } = await import('./commands/serve.js');
-  const { projectCommand } = await import('./commands/project.js');
 
   registerCommand(initCommand);
   registerCommand(resetCommand);
@@ -372,9 +371,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<neve
 
   // Serve command
   registerCommand(serveCommand);
-
-  // Project command (multi-project registry)
-  registerCommand(projectCommand);
 
   // Command aliases
   registerAlias('add', 'create');    // User-friendly alias
