@@ -41,14 +41,12 @@ import {
   GitBranch,
   Check,
   X,
-  Folder,
 } from 'lucide-react';
 import { Tooltip } from '@stoneforge/ui';
 import { useDirectors, useDeleteAgent, useStopAgentSession, useStartAgentSession, useChangeTargetBranch } from '../../api/hooks/useAgents';
 import { useAgentInboxCount } from '../../api/hooks/useAgentInbox';
 import { DirectorTabBar } from './DirectorTabBar';
 import { DirectorTabContent } from './DirectorTabContent';
-import { DirectorPicker } from './DirectorPicker';
 import { CreateAgentDialog } from '../agent/CreateAgentDialog';
 import { DeleteAgentDialog } from '../agent/DeleteAgentDialog';
 
@@ -350,9 +348,6 @@ export function DirectorPanel({ collapsed = false, onToggle, isMaximized = false
 
   // Lifted messages queue state (keyed by director ID)
   const [messagesQueueVisible, setMessagesQueueVisible] = useState<Record<string, boolean>>({});
-
-  // Cross-project director picker popover state
-  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Branch indicator popover state
   const [branchPopoverOpen, setBranchPopoverOpen] = useState(false);
@@ -1015,36 +1010,6 @@ export function DirectorPanel({ collapsed = false, onToggle, isMaximized = false
 
           {/* Separator */}
           <div className="w-px h-4 bg-[var(--color-border)] mx-1" />
-
-          {/* Cross-project directors picker */}
-          <div className="relative">
-            <Tooltip content="Directors across projects" side="bottom">
-              <button
-                type="button"
-                onClick={() => setPickerOpen(prev => !prev)}
-                className={`p-1 rounded-md transition-colors duration-150 ${
-                  pickerOpen
-                    ? 'text-[var(--color-primary)] bg-[var(--color-primary)]/10'
-                    : 'text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-                }`}
-                aria-label="Open directors picker"
-                aria-haspopup="menu"
-                aria-expanded={pickerOpen}
-                data-testid="director-panel-picker-button"
-              >
-                <Folder className="w-3.5 h-3.5" />
-              </button>
-            </Tooltip>
-            {pickerOpen && (
-              <DirectorPicker
-                directors={directors}
-                activeDirectorId={activeDirectorId}
-                unreadCounts={unreadCounts}
-                onSelect={setActiveDirectorId}
-                onClose={() => setPickerOpen(false)}
-              />
-            )}
-          </div>
 
           {/* Panel actions: maximize + collapse */}
           <Tooltip content={isMaximized ? "Restore Panel" : "Maximize Panel"} side="bottom">

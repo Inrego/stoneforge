@@ -87,7 +87,6 @@ describe('AgentRegistry', () => {
       const director = await registry.registerAgent({
         role: 'director',
         name: 'TestDirector',
-        projectId: 'proj-test',
         createdBy: systemEntity,
       });
 
@@ -129,7 +128,6 @@ describe('AgentRegistry', () => {
     test('registerDirector creates a director agent', async () => {
       const director = await registry.registerDirector({
         name: 'MyDirector',
-        projectId: 'proj-prod',
         createdBy: systemEntity,
         tags: ['production'],
       });
@@ -142,24 +140,6 @@ describe('AgentRegistry', () => {
       const meta = getAgentMetadata(director);
       expect(meta?.agentRole).toBe('director');
       expect(meta?.sessionStatus).toBe('idle');
-      // Per-project registration stores projectId on the director metadata.
-      expect((meta as { projectId?: string }).projectId).toBe('proj-prod');
-    });
-
-    test('registerDirector requires a non-empty projectId', async () => {
-      // @ts-expect-error intentionally omitting projectId to test runtime guard
-      const missing = registry.registerDirector({
-        name: 'NoProjectDirector',
-        createdBy: systemEntity,
-      });
-      await expect(missing).rejects.toThrow(/projectId is required/);
-
-      const empty = registry.registerDirector({
-        name: 'EmptyProjectDirector',
-        projectId: '',
-        createdBy: systemEntity,
-      });
-      await expect(empty).rejects.toThrow(/projectId is required/);
     });
 
     test('registerWorker creates a worker with maxConcurrentTasks', async () => {
@@ -198,7 +178,6 @@ describe('AgentRegistry', () => {
     test('registerWorker with reportsTo sets manager', async () => {
       const director = await registry.registerDirector({
         name: 'ManagerDirector',
-        projectId: 'proj-test',
         createdBy: systemEntity,
       });
 
@@ -223,7 +202,6 @@ describe('AgentRegistry', () => {
     beforeEach(async () => {
       director = await registry.registerDirector({
         name: 'QueryDirector',
-        projectId: 'proj-alpha',
         createdBy: systemEntity,
       });
       ephemeralWorker = await registry.registerWorker({
@@ -297,41 +275,6 @@ describe('AgentRegistry', () => {
       expect(mergeStewards.length).toBeGreaterThanOrEqual(1);
       for (const s of mergeStewards) {
         expect((getAgentMetadata(s) as StewardMetadata).stewardFocus).toBe('merge');
-      }
-    });
-
-    test('listAgents filters directors by projectId (picker: list across projects)', async () => {
-      // Register a second director in a different project so the picker has
-      // multiple projects to group by.
-      const otherDirector = await registry.registerDirector({
-        name: 'QueryDirectorBeta',
-        projectId: 'proj-beta',
-        createdBy: systemEntity,
-      });
-
-      const alphaDirectors = await registry.listAgents({
-        role: 'director',
-        projectId: 'proj-alpha',
-      });
-      expect(alphaDirectors.map((d) => d.id)).toContain(director.id);
-      expect(alphaDirectors.map((d) => d.id)).not.toContain(otherDirector.id);
-
-      const betaDirectors = await registry.listAgents({
-        role: 'director',
-        projectId: 'proj-beta',
-      });
-      expect(betaDirectors.map((d) => d.id)).toContain(otherDirector.id);
-      expect(betaDirectors.map((d) => d.id)).not.toContain(director.id);
-
-      // Projects with no registered director return an empty list.
-      const ghost = await registry.listAgents({ projectId: 'proj-unknown' });
-      expect(ghost).toEqual([]);
-
-      // Workers/stewards are excluded when projectId filter is set, since
-      // only directors carry a projectId today.
-      const anyProject = await registry.listAgents({ projectId: 'proj-alpha' });
-      for (const a of anyProject) {
-        expect(getAgentMetadata(a)?.agentRole).toBe('director');
       }
     });
 
@@ -552,7 +495,6 @@ describe('AgentRegistry', () => {
     test('registerDirector creates dedicated channel for the agent', async () => {
       const director = await registry.registerDirector({
         name: 'DirectorWithChannel',
-        projectId: 'proj-test',
         createdBy: systemEntity,
       });
 

@@ -22,14 +22,7 @@ export function createAgentRoutes(services: Services) {
     try {
       const url = new URL(c.req.url);
       const role = url.searchParams.get('role') as 'director' | 'worker' | 'steward' | null;
-      const projectId = url.searchParams.get('projectId') ?? undefined;
-      // Build filter only when we actually need one, so callers without a
-      // projectId still get the full list (including workers/stewards).
-      const agents = projectId
-        ? await agentRegistry.listAgents({ role: role ?? undefined, projectId })
-        : role
-          ? await agentRegistry.getAgentsByRole(role)
-          : await agentRegistry.listAgents();
+      const agents = role ? await agentRegistry.getAgentsByRole(role) : await agentRegistry.listAgents();
       return c.json({ agents });
     } catch (error) {
       logger.error('Failed to list agents:', error);
@@ -56,7 +49,6 @@ export function createAgentRoutes(services: Services) {
         model?: string;
         executablePath?: string;
         targetBranch?: string;
-        projectId?: string;
       };
 
       if (!body.role || !body.name) {
@@ -68,12 +60,8 @@ export function createAgentRoutes(services: Services) {
 
       switch (body.role) {
         case 'director':
-          if (!body.projectId) {
-            return c.json({ error: { code: 'INVALID_INPUT', message: 'projectId is required for directors' } }, 400);
-          }
           agent = await agentRegistry.registerDirector({
             name: body.name,
-            projectId: body.projectId,
             createdBy,
             tags: body.tags,
             maxConcurrentTasks: body.maxConcurrentTasks,
@@ -148,7 +136,6 @@ export function createAgentRoutes(services: Services) {
     try {
       const body = (await c.req.json()) as {
         name: string;
-        projectId?: string;
         maxConcurrentTasks?: number;
         tags?: string[];
         createdBy?: string;
@@ -158,13 +145,9 @@ export function createAgentRoutes(services: Services) {
       if (!body.name) {
         return c.json({ error: { code: 'INVALID_INPUT', message: 'name is required' } }, 400);
       }
-      if (!body.projectId) {
-        return c.json({ error: { code: 'INVALID_INPUT', message: 'projectId is required' } }, 400);
-      }
 
       const agent = await agentRegistry.registerDirector({
         name: body.name,
-        projectId: body.projectId,
         createdBy: (body.createdBy ?? 'el-0000') as EntityId,
         tags: body.tags,
         maxConcurrentTasks: body.maxConcurrentTasks,

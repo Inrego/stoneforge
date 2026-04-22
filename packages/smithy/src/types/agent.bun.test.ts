@@ -127,7 +127,7 @@ describe('StewardTrigger', () => {
 
 describe('AgentMetadata type guards', () => {
   test('isDirectorMetadata identifies director metadata', () => {
-    const director: DirectorMetadata = { agentRole: 'director', sessionStatus: 'idle', projectId: 'proj-test' };
+    const director: DirectorMetadata = { agentRole: 'director', sessionStatus: 'idle' };
     const worker: WorkerMetadata = { agentRole: 'worker', workerMode: 'ephemeral', sessionStatus: 'idle' };
     const steward: StewardMetadata = { agentRole: 'steward', stewardFocus: 'merge', sessionStatus: 'idle' };
 
@@ -137,7 +137,7 @@ describe('AgentMetadata type guards', () => {
   });
 
   test('isWorkerMetadata identifies worker metadata', () => {
-    const director: DirectorMetadata = { agentRole: 'director', sessionStatus: 'idle', projectId: 'proj-test' };
+    const director: DirectorMetadata = { agentRole: 'director', sessionStatus: 'idle' };
     const worker: WorkerMetadata = { agentRole: 'worker', workerMode: 'ephemeral', sessionStatus: 'idle' };
     const steward: StewardMetadata = { agentRole: 'steward', stewardFocus: 'merge', sessionStatus: 'idle' };
 
@@ -147,7 +147,7 @@ describe('AgentMetadata type guards', () => {
   });
 
   test('isStewardMetadata identifies steward metadata', () => {
-    const director: DirectorMetadata = { agentRole: 'director', sessionStatus: 'idle', projectId: 'proj-test' };
+    const director: DirectorMetadata = { agentRole: 'director', sessionStatus: 'idle' };
     const worker: WorkerMetadata = { agentRole: 'worker', workerMode: 'ephemeral', sessionStatus: 'idle' };
     const steward: StewardMetadata = { agentRole: 'steward', stewardFocus: 'merge', sessionStatus: 'idle' };
 
@@ -159,15 +159,8 @@ describe('AgentMetadata type guards', () => {
 
 describe('validateAgentMetadata', () => {
   test('validates director metadata', () => {
-    // Directors require a non-empty projectId (per-project registration).
-    expect(validateAgentMetadata({ agentRole: 'director', projectId: 'proj-a' })).toBe(true);
-    expect(validateAgentMetadata({ agentRole: 'director', projectId: 'proj-a', sessionStatus: 'running', channelId: 'ch-123' })).toBe(true);
-  });
-
-  test('rejects director metadata without projectId', () => {
-    expect(validateAgentMetadata({ agentRole: 'director' })).toBe(false);
-    expect(validateAgentMetadata({ agentRole: 'director', projectId: '' })).toBe(false);
-    expect(validateAgentMetadata({ agentRole: 'director', projectId: 42 })).toBe(false);
+    expect(validateAgentMetadata({ agentRole: 'director' })).toBe(true);
+    expect(validateAgentMetadata({ agentRole: 'director', sessionStatus: 'running', channelId: 'ch-123' })).toBe(true);
   });
 
   test('validates worker metadata', () => {
@@ -200,11 +193,11 @@ describe('validateAgentMetadata', () => {
   });
 
   test('validates agent metadata with maxConcurrentTasks', () => {
-    expect(validateAgentMetadata({ agentRole: 'director', projectId: 'proj-a', maxConcurrentTasks: 2 })).toBe(true);
+    expect(validateAgentMetadata({ agentRole: 'director', maxConcurrentTasks: 2 })).toBe(true);
     expect(validateAgentMetadata({ agentRole: 'worker', workerMode: 'ephemeral', maxConcurrentTasks: 3 })).toBe(true);
   });
 
   test('rejects agent metadata with invalid maxConcurrentTasks', () => {
-    expect(validateAgentMetadata({ agentRole: 'director', projectId: 'proj-a', maxConcurrentTasks: 'invalid' })).toBe(false);
+    expect(validateAgentMetadata({ agentRole: 'director', maxConcurrentTasks: 'invalid' })).toBe(false);
   });
 });

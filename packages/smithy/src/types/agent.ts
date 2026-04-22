@@ -199,13 +199,6 @@ export interface DirectorMetadata extends BaseAgentMetadata {
    * If not set, falls back to workspace-level baseBranch config or auto-detection.
    */
   readonly targetBranch?: string;
-  /**
-   * Identifier of the project this director belongs to. Required at registration
-   * time so directors are scoped to a single project in the multi-project registry
-   * (see `~/.stoneforge/projects.json`). The picker in the Director Panel groups
-   * directors by this field when enumerating sessions across projects.
-   */
-  readonly projectId: string;
 }
 
 /**
@@ -282,13 +275,6 @@ export function isStewardMetadata(metadata: AgentMetadata): metadata is StewardM
 export interface RegisterDirectorInput {
   /** Agent name (must be unique) */
   readonly name: string;
-  /**
-   * Identifier of the project that owns this director (see the projects registry
-   * at `~/.stoneforge/projects.json`). Directors are scoped per project; the
-   * Director Panel picker lists registered directors grouped by `projectId`.
-   * Required — must be a non-empty string.
-   */
-  readonly projectId: string;
   /** Optional tags for the agent entity */
   readonly tags?: string[];
   /** Entity ID of the creator (usually a human) */
@@ -392,12 +378,6 @@ export interface AgentFilter {
   readonly reportsTo?: EntityId;
   /** Include only agents with sessions */
   readonly hasSession?: boolean;
-  /**
-   * Filter by project. Currently only meaningful for directors, which are the
-   * only agent kind with a required `projectId`. Agents without a `projectId`
-   * (workers, stewards) are excluded when this filter is set.
-   */
-  readonly projectId?: string;
 }
 
 // ============================================================================
@@ -425,8 +405,7 @@ export function validateAgentMetadata(metadata: unknown): metadata is AgentMetad
 
   switch (obj.agentRole) {
     case 'director':
-      // Directors must have a non-empty projectId
-      return typeof obj.projectId === 'string' && obj.projectId.length > 0;
+      return true;
     case 'worker':
       return isWorkerMode(obj.workerMode);
     case 'steward':

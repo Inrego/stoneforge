@@ -149,7 +149,6 @@ function makeAgent(
 const mockAgents: Agent[] = [
   makeAgent(ID.agentDirector, 'director', {
     agentRole: 'director',
-    projectId: 'proj-local',
     targetBranch: 'master',
     sessionId: ID.sessionDirector,
     sessionStatus: 'running',
@@ -569,7 +568,7 @@ const mockEntities: Entity[] = [
     entityType: 'agent',
     active: true,
     tags: [],
-    metadata: { agent: { agentRole: 'director', projectId: 'proj-local' } },
+    metadata: { agent: { agentRole: 'director' } },
     createdAt: isoAgo(7 * day),
     updatedAt: isoAgo(hour),
   },

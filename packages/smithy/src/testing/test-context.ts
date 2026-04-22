@@ -844,18 +844,13 @@ export async function createTestWorker(
 
 /**
  * Creates a test director agent.
- *
- * `projectId` defaults to 'proj-test' for convenience in unit tests; pass a
- * specific project id to exercise per-project scoping behavior.
  */
 export async function createTestDirector(
   ctx: TestContext,
-  name: string,
-  options: { projectId?: string } = {}
+  name: string
 ): Promise<AgentEntity> {
   return ctx.api.registerDirector({
     name,
-    projectId: options.projectId ?? 'proj-test',
     createdBy: ctx.systemEntityId,
     maxConcurrentTasks: 5,
     tags: ['test'],

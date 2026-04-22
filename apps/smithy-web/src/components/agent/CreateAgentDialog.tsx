@@ -169,8 +169,6 @@ interface FormState {
   executablePath: string;
   // Target branch for director (empty string means auto-detect)
   targetBranch: string;
-  // Project ID — required when role === 'director'
-  projectId: string;
 }
 
 /** Default executable name per provider (used as placeholder text) */
@@ -192,7 +190,6 @@ const defaultState: FormState = {
   model: '',
   executablePath: '',
   targetBranch: '',
-  projectId: '',
 };
 
 export function CreateAgentDialog({
@@ -315,11 +312,6 @@ export function CreateAgentDialog({
       return;
     }
 
-    if (form.role === 'director' && !form.projectId.trim()) {
-      setError('Project is required for directors');
-      return;
-    }
-
     // Build input
     const input: CreateAgentInput = {
       name: form.name.trim(),
@@ -333,7 +325,6 @@ export function CreateAgentDialog({
       model: form.model || undefined, // Only include if not empty (not using default)
       executablePath: form.executablePath.trim() || undefined, // Only include if not empty (not using default)
       targetBranch: form.role === 'director' && form.targetBranch.trim() ? form.targetBranch.trim() : undefined,
-      projectId: form.role === 'director' ? form.projectId.trim() : undefined,
     };
 
     // Add role-specific fields
@@ -520,36 +511,6 @@ export function CreateAgentDialog({
                 data-testid="agent-name"
               />
             </div>
-
-            {/* Director-specific: Project */}
-            {form.role === 'director' && (
-              <div className="space-y-1">
-                <label htmlFor="agent-project" className="text-sm font-medium text-[var(--color-text)]">
-                  Project
-                </label>
-                <input
-                  id="agent-project"
-                  type="text"
-                  value={form.projectId}
-                  onChange={e => setForm(prev => ({ ...prev, projectId: e.target.value }))}
-                  placeholder="proj-xxxxxxxx"
-                  className="
-                    w-full px-3 py-2
-                    text-sm
-                    bg-[var(--color-surface)]
-                    border border-[var(--color-border)]
-                    rounded-lg
-                    placeholder:text-[var(--color-text-tertiary)]
-                    focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]/30
-                  "
-                  data-testid="agent-project-id"
-                  required
-                />
-                <p className="text-xs text-[var(--color-text-tertiary)]">
-                  Project this director belongs to. Use <code>sf project list</code> to see registered projects.
-                </p>
-              </div>
-            )}
 
             {/* Worker-specific: Mode */}
             {form.role === 'worker' && (
@@ -981,7 +942,7 @@ export function CreateAgentDialog({
               </button>
               <button
                 type="submit"
-                disabled={createAgent.isPending || !form.name.trim() || (form.role === 'steward' && form.stewardFocus === 'custom' && !form.playbookId) || (form.role === 'director' && !form.projectId.trim())}
+                disabled={createAgent.isPending || !form.name.trim() || (form.role === 'steward' && form.stewardFocus === 'custom' && !form.playbookId)}
                 className="
                   flex items-center gap-2
                   px-4 py-2

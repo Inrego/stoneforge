@@ -291,12 +291,6 @@ export class AgentRegistryImpl implements AgentRegistry {
   }
 
   async registerDirector(input: RegisterDirectorInput): Promise<AgentEntity> {
-    if (typeof input.projectId !== 'string' || input.projectId.length === 0) {
-      throw new Error(
-        'registerDirector: projectId is required and must be a non-empty string'
-      );
-    }
-
     const existing = await this.getAgentByName(input.name);
     if (existing) {
       throw duplicateName(input.name, 'agent', { existingId: existing.id });
@@ -311,7 +305,6 @@ export class AgentRegistryImpl implements AgentRegistry {
       model: input.model,
       executablePath: input.executablePath,
       targetBranch: input.targetBranch,
-      projectId: input.projectId,
     };
 
     const entity = await createEntity({
@@ -784,17 +777,6 @@ export class AgentRegistryImpl implements AgentRegistry {
       result = result.filter((a) => {
         const meta = getAgentMetadata(a);
         return (meta?.sessionId !== undefined) === filter.hasSession;
-      });
-    }
-
-    if (filter.projectId !== undefined) {
-      result = result.filter((a) => {
-        const meta = getAgentMetadata(a);
-        // Only directors carry a projectId today; other roles never match.
-        return (
-          meta?.agentRole === 'director' &&
-          (meta as DirectorMetadata).projectId === filter.projectId
-        );
       });
     }
 

@@ -249,12 +249,6 @@ export class OrchestratorAPIImpl extends QuarryAPIImpl implements OrchestratorAP
   // ----------------------------------------
 
   async registerDirector(input: RegisterDirectorInput): Promise<AgentEntity> {
-    if (typeof input.projectId !== 'string' || input.projectId.length === 0) {
-      throw new Error(
-        'registerDirector: projectId is required and must be a non-empty string'
-      );
-    }
-
     const agentMetadata: DirectorMetadata = {
       agentRole: 'director',
       sessionStatus: 'idle',
@@ -264,7 +258,6 @@ export class OrchestratorAPIImpl extends QuarryAPIImpl implements OrchestratorAP
       model: input.model,
       executablePath: input.executablePath,
       targetBranch: input.targetBranch,
-      projectId: input.projectId,
     };
 
     // Create the entity with agent metadata nested under the agent key

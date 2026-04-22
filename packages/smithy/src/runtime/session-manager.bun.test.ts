@@ -58,7 +58,6 @@ function createMockAgent(
       }
     : {
         agentRole: role as 'director',
-        projectId: 'proj-test',
         sessionStatus: options?.sessionStatus ?? 'idle',
         sessionId: options?.sessionId,
         channelId: options?.channelId as ChannelId | undefined,
