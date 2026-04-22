@@ -53,6 +53,12 @@ export interface BaseAgentMetadata {
 export interface DirectorMetadata extends BaseAgentMetadata {
   agentRole: 'director';
   targetBranch?: string;
+  /**
+   * Project the director is registered to. Required at registration time; the
+   * Director Panel picker groups directors by this field when listing sessions
+   * across projects.
+   */
+  projectId: string;
 }
 
 export interface WorkerMetadata extends BaseAgentMetadata {
@@ -207,6 +213,11 @@ export interface CreateAgentInput {
   executablePath?: string;
   // Target branch for director agents (if not set, auto-detects master/main)
   targetBranch?: string;
+  /**
+   * Project ID the agent is scoped to. Required for `role === 'director'` —
+   * directors are registered per-project. Optional for other roles today.
+   */
+  projectId?: string;
 }
 
 // ============================================================================

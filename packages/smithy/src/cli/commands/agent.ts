@@ -409,6 +409,7 @@ interface AgentRegisterOptions {
   provider?: string;
   model?: string;
   targetBranch?: string;
+  project?: string;
 }
 
 const agentRegisterOptions: CommandOption[] = [
@@ -472,6 +473,12 @@ const agentRegisterOptions: CommandOption[] = [
     description: 'Target branch for merge (director only, default: auto-detect)',
     hasValue: true,
   },
+  {
+    name: 'project',
+    short: 'p',
+    description: 'Project ID to scope the agent to (required for directors)',
+    hasValue: true,
+  },
 ];
 
 async function agentRegisterHandler(
@@ -512,9 +519,16 @@ async function agentRegisterHandler(
     let agent: AgentEntity;
 
     switch (options.role as AgentRole) {
-      case 'director':
+      case 'director': {
+        if (!options.project) {
+          return failure(
+            '--project is required for directors. Use `sf project list` to see registered projects.',
+            ExitCode.INVALID_ARGUMENTS
+          );
+        }
         agent = await api.registerDirector({
           name,
+          projectId: options.project,
           createdBy,
           maxConcurrentTasks,
           tags,
@@ -524,6 +538,7 @@ async function agentRegisterHandler(
           targetBranch: options.targetBranch,
         });
         break;
+      }
 
       case 'worker': {
         const workerMode = (options.mode as WorkerMode) ?? 'ephemeral';
@@ -619,11 +634,12 @@ Options:
   --provider <name>       Agent provider (e.g., claude-code, opencode)
   --model <model>         LLM model to use (e.g., claude-sonnet-4-5-20250929)
   --target-branch <branch> Target branch for merge (director only, default: auto-detect)
+  -p, --project <id>      Project ID (required for directors; see 'sf project list')
 
 Examples:
   sf agent register MyWorker --role worker --mode ephemeral
-  sf agent register MainDirector --role director
-  sf agent register MainDirector --role director --target-branch staging
+  sf agent register MainDirector --role director --project proj-abc123
+  sf agent register MainDirector --role director --project proj-abc123 --target-branch staging
   sf agent register MergeSteward --role steward --focus merge
   sf agent register MyWorker --role worker --tags "frontend,urgent"
   sf agent register TeamWorker --role worker --reportsTo el-director123

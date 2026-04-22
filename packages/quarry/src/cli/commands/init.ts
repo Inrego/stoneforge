@@ -255,6 +255,11 @@ export const DEFAULT_AGENTS = [
     name: 'director',
     metadata: {
       agentRole: 'director',
+      // 'proj-local' is a sentinel project id used for the default single-project
+      // workspace created by `sf init`. Once the project registry flow lands
+      // (see the multi-project plan), `sf init` will register the workspace as
+      // a real project and replace this sentinel.
+      projectId: 'proj-local',
       sessionStatus: 'idle',
       maxConcurrentTasks: 1,
     },

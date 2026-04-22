@@ -49,6 +49,7 @@ describe('OrchestratorAPI', () => {
     test('registerDirector creates a director agent', async () => {
       const director = await api.registerDirector({
         name: 'TestDirector',
+        projectId: 'proj-test',
         createdBy: systemEntity,
         tags: ['test'],
       });
@@ -139,6 +140,7 @@ describe('OrchestratorAPI', () => {
     test('registerDirector persists provider, model, and executablePath', async () => {
       const director = await api.registerDirector({
         name: 'ProviderDirector',
+        projectId: 'proj-test',
         createdBy: systemEntity,
         provider: 'claude-code',
         model: 'claude-sonnet-4-20250514',
@@ -235,6 +237,7 @@ describe('OrchestratorAPI', () => {
     test('registerDirector with targetBranch stores it in metadata', async () => {
       const director = await api.registerDirector({
         name: 'StagingDirector',
+        projectId: 'proj-test',
         createdBy: systemEntity,
         targetBranch: 'staging',
       });
@@ -253,6 +256,7 @@ describe('OrchestratorAPI', () => {
     test('registerDirector without targetBranch leaves it undefined', async () => {
       const director = await api.registerDirector({
         name: 'DefaultDirector',
+        projectId: 'proj-test',
         createdBy: systemEntity,
       });
 
@@ -282,7 +286,7 @@ describe('OrchestratorAPI', () => {
     let steward: AgentEntity;
 
     beforeEach(async () => {
-      director = await api.registerDirector({ name: 'QueryDirector', createdBy: systemEntity });
+      director = await api.registerDirector({ name: 'QueryDirector', projectId: 'proj-test', createdBy: systemEntity });
       worker1 = await api.registerWorker({ name: 'QueryWorker1', workerMode: 'ephemeral', createdBy: systemEntity });
       worker2 = await api.registerWorker({ name: 'QueryWorker2', workerMode: 'persistent', createdBy: systemEntity });
       steward = await api.registerSteward({ name: 'QuerySteward', stewardFocus: 'docs', createdBy: systemEntity });
@@ -357,7 +361,7 @@ describe('OrchestratorAPI', () => {
     });
 
     test('getAgentChannel returns direct channel ID created during registration (TB-O7a)', async () => {
-      const director = await api.registerDirector({ name: 'ChannelDirector', createdBy: systemEntity });
+      const director = await api.registerDirector({ name: 'ChannelDirector', projectId: 'proj-test', createdBy: systemEntity });
 
       const channelId = await api.getAgentChannel(director.id as unknown as EntityId);
       expect(channelId).toBeDefined();

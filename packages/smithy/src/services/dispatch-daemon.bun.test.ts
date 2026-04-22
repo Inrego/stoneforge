@@ -6263,6 +6263,7 @@ describe('assignTaskToWorker - per-director targetBranch propagation', () => {
     // 1. Register a director with targetBranch = 'staging'
     const director = await agentRegistry.registerDirector({
       name: 'staging-director',
+      projectId: 'proj-test',
       createdBy: systemEntity,
       targetBranch: 'staging',
     });
@@ -6291,6 +6292,7 @@ describe('assignTaskToWorker - per-director targetBranch propagation', () => {
     // 1. Register a director with targetBranch = 'staging'
     const director = await agentRegistry.registerDirector({
       name: 'staging-director-handoff',
+      projectId: 'proj-test',
       createdBy: systemEntity,
       targetBranch: 'staging',
     });
@@ -6343,6 +6345,7 @@ describe('assignTaskToWorker - per-director targetBranch propagation', () => {
     // 1. Register a director with targetBranch = 'staging'
     const director = await agentRegistry.registerDirector({
       name: 'staging-director-worktree',
+      projectId: 'proj-test',
       createdBy: systemEntity,
       targetBranch: 'staging',
     });
