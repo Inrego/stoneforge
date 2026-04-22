@@ -76,6 +76,35 @@ export * from './services/priority-service.js';
 export * from './services/id-length-cache.js';
 export * from './services/blocked-cache.js';
 
+// Projects - Global registry at ~/.stoneforge/projects.json
+export {
+  CURRENT_REGISTRY_VERSION,
+  GLOBAL_STONEFORGE_DIR,
+  PROJECTS_REGISTRY_FILE,
+  getGlobalStoneforgeDir,
+  getRegistryPath,
+  validateProjectPath,
+  readRegistry,
+  writeRegistry,
+  addProject,
+  updateProject,
+  removeProject,
+  findProjectById,
+  findProjectByPath,
+  emptyRegistry,
+  ProjectPathError,
+  ProjectRegistryError,
+  type Project,
+  type ProjectRegistry,
+  type CreateProjectInput,
+  type UpdateProjectInput,
+  createProjectRegistryService,
+  tryLoadProjectRegistryService,
+  loadProjectRegistryForBoot,
+  type ProjectRegistryService,
+  type ProjectRegistryServiceOptions,
+} from './projects/index.js';
+
 // HTTP handlers for browser sync
 export * from './http/index.js';
 

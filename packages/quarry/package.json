@@ -64,6 +64,12 @@
       "import": "./dist/external-sync/index.js",
       "default": "./dist/external-sync/index.js"
     },
+    "./projects": {
+      "types": "./src/projects/index.ts",
+      "bun": "./src/projects/index.ts",
+      "import": "./dist/projects/index.js",
+      "default": "./dist/projects/index.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

@@ -72,10 +72,12 @@ import { createSyncService } from '../sync/service.js';
 import { createAutoExportService } from '../sync/auto-export.js';
 import { createInboxService } from '../services/inbox.js';
 import { loadConfig } from '../config/config.js';
+import { loadProjectRegistryForBoot } from '../projects/service.js';
 import type { QuarryAPI } from '../api/types.js';
 import type { SyncService } from '../sync/service.js';
 import type { AutoExportService } from '../sync/auto-export.js';
 import type { InboxService } from '../services/inbox.js';
+import type { ProjectRegistryService } from '../projects/service.js';
 // Shared routes for collaborate features
 import {
   createElementsRoutes,
@@ -120,6 +122,12 @@ export interface QuarryApp {
   inboxService: InboxService;
   broadcaster: ReturnType<typeof initializeBroadcaster>;
   storageBackend: ReturnType<typeof createStorage>;
+  /**
+   * Global projects registry service backed by `~/.stoneforge/projects.json`.
+   * May be `null` when the registry could not be loaded — a malformed file
+   * must not keep the server from starting. The failure is logged at boot.
+   */
+  projectsService: ProjectRegistryService | null;
 }
 
 // ============================================================================
@@ -176,6 +184,18 @@ export function createQuarryApp(options: QuarryServerOptions = {}): QuarryApp {
     console.log(`[stoneforge] Connected to database: ${DB_PATH}`);
   } catch (error) {
     throw new Error(`Failed to initialize database: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  // ============================================================================
+  // Load Projects Registry (~/.stoneforge/projects.json)
+  // ============================================================================
+
+  const projectsBoot = loadProjectRegistryForBoot();
+  const projectsService: ProjectRegistryService | null = projectsBoot.service;
+  if (projectsBoot.logLevel === 'warn') {
+    console.warn(`[stoneforge] ${projectsBoot.message}`);
+  } else {
+    console.log(`[stoneforge] ${projectsBoot.message}`);
   }
 
   // ============================================================================
@@ -3662,7 +3682,7 @@ app.delete('/api/uploads/:filename', async (c) => {
 });
 
   // Return the app and services
-  return { app, api, syncService, autoExportService, inboxService, broadcaster, storageBackend };
+  return { app, api, syncService, autoExportService, inboxService, broadcaster, storageBackend, projectsService };
 }
 
 // ============================================================================
