@@ -22,7 +22,6 @@ import {
   FileText,
   FileCode,
   GitMerge,
-  FolderGit2,
   type LucideIcon,
 } from 'lucide-react';
 import { useShortcutVersion, Tooltip } from '@stoneforge/ui';
@@ -75,7 +74,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/agents', icon: Users, label: 'Agents', testId: 'nav-agents', actionId: 'nav.agents' },
       { to: '/workspaces', icon: LayoutGrid, label: 'Workspaces', testId: 'nav-workspaces', actionId: 'nav.workspaces' },
-      { to: '/projects', icon: FolderGit2, label: 'Projects', testId: 'nav-projects' },
     ],
   },
   {

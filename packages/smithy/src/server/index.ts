@@ -34,10 +34,8 @@ import {
   createDiagnosticsRoutes,
   createExternalSyncRoutes,
   createApprovalRoutes,
-  createProjectRoutes,
   markDaemonAsServerManaged,
 } from './routes/index.js';
-import { createProjectRegistryService } from './services/project-registry.js';
 // Shared collaborate routes
 import {
   createElementsRoutes,
@@ -161,10 +159,6 @@ export async function startSmithyServer(options: SmithyServerOptions = {}): Prom
   app.route('/', createDiagnosticsRoutes(services));
   app.route('/', createExternalSyncRoutes(services));
   app.route('/', createApprovalRoutes(services));
-
-  // Projects registry routes — backed by ~/.stoneforge/projects.json
-  const projectRegistry = createProjectRegistryService();
-  app.route('/', createProjectRoutes({ projectRegistry }));
 
   app.route('/', createElementsRoutes(collaborateServices));
   app.route('/', createEntityRoutes(collaborateServices));
