@@ -57,10 +57,11 @@ describe('ElementType', () => {
     expect(ElementType.CHANNEL).toBe('channel');
     expect(ElementType.LIBRARY).toBe('library');
     expect(ElementType.TEAM).toBe('team');
+    expect(ElementType.PROJECT).toBe('project');
   });
 
-  test('has exactly 10 types', () => {
-    expect(Object.keys(ElementType)).toHaveLength(10);
+  test('has exactly 11 types', () => {
+    expect(Object.keys(ElementType)).toHaveLength(11);
   });
 });
 

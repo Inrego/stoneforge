@@ -46,6 +46,39 @@ export {
 export * from './message.js';
 export * from './workflow.js';
 
+// Project exports - aliased to avoid naming conflicts with other modules (e.g. library/team findByName)
+export {
+  // Types
+  type Project,
+  type ProjectId,
+  type CreateProjectInput,
+  type UpdateProjectInput,
+  // Constants
+  MIN_PROJECT_NAME_LENGTH,
+  MAX_PROJECT_NAME_LENGTH,
+  MAX_PROJECT_PATH_LENGTH,
+  // Branding
+  asProjectId,
+  // Validation
+  isValidProjectName,
+  validateProjectName,
+  isValidProjectPath,
+  validateProjectPath,
+  isValidProjectId,
+  validateProjectId,
+  // Type guards
+  isProject,
+  validateProject,
+  // Factory & updates
+  createProject,
+  updateProject,
+  // Utilities - aliased to avoid conflicts with other modules
+  getProjectDisplayName,
+  findByName as findProjectByName,
+  findByPath as findProjectByPath,
+  sortByName as sortProjectsByName,
+} from './project.js';
+
 // Playbook exports - aliased to avoid naming conflicts with other modules
 export {
   // Types and interfaces

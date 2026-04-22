@@ -329,6 +329,11 @@ export interface ElementWithTombstoneStatus {
 /**
  * Element type priority for export ordering
  * Lower number = exported first (entities first for references)
+ *
+ * Note: 'project' is listed last for now because projectId is nullable in the
+ * migration phase — no rows yet reference a project, so ordering is
+ * irrelevant. A later task that actually backfills projectId may want to
+ * promote 'project' ahead of 'entity'.
  */
 export const ELEMENT_TYPE_PRIORITY: Record<string, number> = {
   entity: 0,
@@ -341,6 +346,7 @@ export const ELEMENT_TYPE_PRIORITY: Record<string, number> = {
   playbook: 7,
   library: 8,
   team: 9,
+  project: 10,
 };
 
 /**

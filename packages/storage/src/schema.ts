@@ -14,7 +14,7 @@ import type { Migration, MigrationResult, StorageBackend } from './index.js';
 /**
  * Current schema version
  */
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 // ============================================================================
 // Migrations
@@ -554,9 +554,103 @@ ALTER TABLE provider_metrics DROP COLUMN cache_creation_tokens;
 };
 
 /**
+ * Migration 13: Add 'project' element type and projectId column on elements
+ *
+ * Introduces multi-project support in the storage layer:
+ * - Extends the elements type CHECK constraint to allow 'project' rows.
+ * - Adds a nullable project_id column for associating any element with a project.
+ * - Adds an index on project_id for efficient per-project queries.
+ *
+ * project_id is intentionally nullable for the migration phase: existing rows
+ * remain unassigned until backfilled by a later task. SQLite does not support
+ * ALTER CONSTRAINT, so the elements table is recreated to update the CHECK.
+ */
+const migration013: Migration = {
+  version: 13,
+  description: "Add 'project' element type and nullable project_id column on elements",
+  up: `
+-- Defer foreign-key enforcement until COMMIT so we can drop/recreate the
+-- elements table (many other tables FK into it). Referring rows are not
+-- touched, so the check at COMMIT passes. This pragma is scoped to the current
+-- transaction — unlike foreign_keys, it works inside a transaction.
+PRAGMA defer_foreign_keys = ON;
+
+-- Recreate elements with updated CHECK constraint (adds 'project') and new
+-- nullable project_id column.
+CREATE TABLE elements_new (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    data TEXT NOT NULL,
+    content_hash TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    deleted_at TEXT,
+    project_id TEXT,
+    CHECK (type IN ('task', 'message', 'document', 'entity',
+                    'plan', 'workflow', 'playbook',
+                    'channel', 'library', 'team', 'project'))
+);
+
+INSERT INTO elements_new (id, type, data, content_hash, created_at, updated_at, created_by, deleted_at)
+SELECT id, type, data, content_hash, created_at, updated_at, created_by, deleted_at
+FROM elements;
+
+DROP TABLE elements;
+ALTER TABLE elements_new RENAME TO elements;
+
+-- Recreate the original element indexes
+CREATE INDEX idx_elements_type ON elements(type);
+CREATE INDEX idx_elements_created_by ON elements(created_by);
+CREATE INDEX idx_elements_created_at ON elements(created_at);
+CREATE INDEX idx_elements_content_hash ON elements(content_hash);
+CREATE INDEX idx_elements_deleted_at ON elements(deleted_at);
+
+-- New index for per-project queries
+CREATE INDEX idx_elements_project_id ON elements(project_id);
+`,
+  down: `
+-- Defer FK enforcement for the same reason as up().
+PRAGMA defer_foreign_keys = ON;
+
+-- Recreate elements with the original CHECK constraint (without 'project') and
+-- without project_id. Rows typed 'project' will be dropped. Rows with a
+-- non-null project_id are kept (the column is simply lost).
+CREATE TABLE elements_old (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    data TEXT NOT NULL,
+    content_hash TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    deleted_at TEXT,
+    CHECK (type IN ('task', 'message', 'document', 'entity',
+                    'plan', 'workflow', 'playbook',
+                    'channel', 'library', 'team'))
+);
+
+INSERT INTO elements_old (id, type, data, content_hash, created_at, updated_at, created_by, deleted_at)
+SELECT id, type, data, content_hash, created_at, updated_at, created_by, deleted_at
+FROM elements
+WHERE type != 'project';
+
+DROP TABLE elements;
+ALTER TABLE elements_old RENAME TO elements;
+
+-- Recreate original indexes (project_id index is gone with the column)
+CREATE INDEX idx_elements_type ON elements(type);
+CREATE INDEX idx_elements_created_by ON elements(created_by);
+CREATE INDEX idx_elements_created_at ON elements(created_at);
+CREATE INDEX idx_elements_content_hash ON elements(content_hash);
+CREATE INDEX idx_elements_deleted_at ON elements(deleted_at);
+`,
+};
+
+/**
  * All migrations in order
  */
-export const MIGRATIONS: readonly Migration[] = [migration001, migration002, migration003, migration004, migration005, migration006, migration007, migration008, migration009, migration010, migration011, migration012];
+export const MIGRATIONS: readonly Migration[] = [migration001, migration002, migration003, migration004, migration005, migration006, migration007, migration008, migration009, migration010, migration011, migration012, migration013];
 
 // ============================================================================
 // Schema Functions

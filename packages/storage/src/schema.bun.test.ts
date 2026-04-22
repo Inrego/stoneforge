@@ -207,6 +207,8 @@ describe('Schema Management', () => {
       expect(columnNames).toContain('updated_at');
       expect(columnNames).toContain('created_by');
       expect(columnNames).toContain('deleted_at');
+      // Added in migration 13
+      expect(columnNames).toContain('project_id');
     });
 
     it('should have id as primary key', () => {
@@ -232,7 +234,7 @@ describe('Schema Management', () => {
 
     it('should have nullable columns', () => {
       const columns = getTableColumns(backend, 'elements');
-      const nullableColumns = ['content_hash', 'deleted_at'];
+      const nullableColumns = ['content_hash', 'deleted_at', 'project_id'];
 
       for (const colName of nullableColumns) {
         const col = columns.find((c) => c.name === colName);
@@ -249,6 +251,8 @@ describe('Schema Management', () => {
       expect(indexes).toContain('idx_elements_created_at');
       expect(indexes).toContain('idx_elements_content_hash');
       expect(indexes).toContain('idx_elements_deleted_at');
+      // Added in migration 13
+      expect(indexes).toContain('idx_elements_project_id');
     });
 
     it('should enforce type constraint', () => {
@@ -272,6 +276,7 @@ describe('Schema Management', () => {
         'channel',
         'library',
         'team',
+        'project',
       ];
 
       for (const type of validTypes) {
@@ -283,6 +288,43 @@ describe('Schema Management', () => {
           );
         }).not.toThrow();
       }
+    });
+
+    it('should accept nullable project_id and round-trip its value', () => {
+      // NULL project_id allowed (migration phase default)
+      backend.run(
+        `INSERT INTO elements (id, type, data, created_at, updated_at, created_by)
+         VALUES ('el-no-proj', 'task', '{}', '2024-01-01', '2024-01-01', 'actor')`,
+      );
+      const nullRow = backend.query<{ project_id: string | null }>(
+        `SELECT project_id FROM elements WHERE id = 'el-no-proj'`,
+      );
+      expect(nullRow[0].project_id).toBeNull();
+
+      // Non-null project_id persists
+      backend.run(
+        `INSERT INTO elements (id, type, data, created_at, updated_at, created_by, project_id)
+         VALUES ('el-with-proj', 'task', '{}', '2024-01-01', '2024-01-01', 'actor', 'el-proj1')`,
+      );
+      const setRow = backend.query<{ project_id: string | null }>(
+        `SELECT project_id FROM elements WHERE id = 'el-with-proj'`,
+      );
+      expect(setRow[0].project_id).toBe('el-proj1');
+    });
+
+    it('should preserve existing FK cascades across migration 13 recreate', () => {
+      // Insert element + tag (tags FKs elements)
+      backend.run(
+        `INSERT INTO elements (id, type, data, created_at, updated_at, created_by)
+         VALUES ('el-fk-test', 'task', '{}', '2024-01-01', '2024-01-01', 'actor')`,
+      );
+      backend.run(
+        `INSERT INTO tags (element_id, tag) VALUES ('el-fk-test', 'smoke')`,
+      );
+      // Delete the parent — tag row should cascade away
+      backend.run(`DELETE FROM elements WHERE id = 'el-fk-test'`);
+      const tags = backend.query(`SELECT * FROM tags WHERE element_id = 'el-fk-test'`);
+      expect(tags.length).toBe(0);
     });
   });
 

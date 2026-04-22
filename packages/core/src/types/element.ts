@@ -64,6 +64,7 @@ export const ElementType = {
   CHANNEL: 'channel',
   LIBRARY: 'library',
   TEAM: 'team',
+  PROJECT: 'project',
 } as const;
 
 export type ElementType = (typeof ElementType)[keyof typeof ElementType];

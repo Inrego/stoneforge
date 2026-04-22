@@ -108,6 +108,7 @@ describe('Types', () => {
       expect(ELEMENT_TYPE_PRIORITY['playbook']).toBeDefined();
       expect(ELEMENT_TYPE_PRIORITY['library']).toBeDefined();
       expect(ELEMENT_TYPE_PRIORITY['team']).toBeDefined();
+      expect(ELEMENT_TYPE_PRIORITY['project']).toBeDefined();
     });
   });
 
