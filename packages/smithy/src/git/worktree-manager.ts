@@ -115,6 +115,22 @@ export interface CreateWorktreeOptions {
   readonly trackRemote?: boolean;
   /** Install dependencies after worktree creation (default: false) */
   readonly installDependencies?: boolean;
+  /**
+   * Override the base directory the worktree is placed under.
+   *
+   * When set, the worktree path becomes `{projectRoot}/{relativePath}`
+   * instead of `{workspaceRoot}/{relativePath}`. This lets callers route
+   * per-task worktrees to the project that owns the task (resolved from
+   * `task.projectId`) when multiple projects share a single workspace.
+   *
+   * Git operations (`git worktree add`, etc.) still run against the
+   * workspace repository at `config.workspaceRoot`. Callers should only
+   * pass this for projects that share the workspace repo; cross-repo
+   * project support requires per-project WorktreeManagers.
+   *
+   * Defaults to `config.workspaceRoot` when unset.
+   */
+  readonly projectRoot?: string;
 }
 
 /**
@@ -430,13 +446,24 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const slug = options.taskTitle ? createSlugFromTitle(options.taskTitle) : undefined;
     const branch = options.customBranch ?? generateBranchName(options.agentName, options.taskId, slug);
     const relativePath = options.customPath ?? generateWorktreePath(options.agentName, slug);
-    const fullPath = path.join(this.config.workspaceRoot, relativePath);
+    // When the task is owned by a project whose path differs from the workspace
+    // root, place the worktree under that project's path. Git operations still
+    // run against the workspace repo (single-repo assumption). Downstream ops
+    // that compute their own keys via getRelativePath continue to work because
+    // we pass the absolute fullPath to getWorktree/removeWorktree below.
+    const baseRoot = options.projectRoot
+      ? path.resolve(options.projectRoot)
+      : this.config.workspaceRoot;
+    const fullPath = path.isAbsolute(relativePath)
+      ? relativePath
+      : path.join(baseRoot, relativePath);
 
     // Check if worktree already exists — try to remove stale worktree and retry
-    // (may be left over from a task reset or crash)
+    // (may be left over from a task reset or crash). Pass the absolute path so
+    // lookups work when projectRoot differs from workspaceRoot.
     if (fs.existsSync(fullPath)) {
       try {
-        await this.removeWorktree(relativePath, { force: true });
+        await this.removeWorktree(fullPath, { force: true });
       } catch {
         // removeWorktree failed — the directory may exist without being a
         // registered git worktree (e.g., after a failed dependency install
@@ -546,8 +573,9 @@ export class WorktreeManagerImpl implements WorktreeManager {
       // Update state to active
       this.worktreeStates.set(relativePath, 'active');
 
-      // Get worktree info
-      const worktree = await this.getWorktree(relativePath);
+      // Get worktree info — use the absolute path so lookups resolve correctly
+      // when projectRoot differs from workspaceRoot.
+      const worktree = await this.getWorktree(fullPath);
       if (!worktree) {
         throw new WorktreeError(
           'Failed to get worktree info after creation',

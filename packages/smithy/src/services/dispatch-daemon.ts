@@ -47,6 +47,7 @@ import type { DispatchService, DispatchOptions } from './dispatch-service.js';
 import type { WorktreeManager, CreateWorktreeResult } from '../git/worktree-manager.js';
 import type { SyncResult } from '../cli/commands/task.js';
 import type { TaskAssignmentService } from './task-assignment-service.js';
+import { resolveTaskProjectRoot } from './project-root-resolver.js';
 import type { StewardScheduler } from './steward-scheduler.js';
 import type { AgentPoolService } from './agent-pool-service.js';
 import type { SettingsService } from './settings-service.js';
@@ -2971,12 +2972,18 @@ export class DispatchDaemonImpl implements DispatchDaemon {
       await this.config.ensureTargetBranchExists(this.config.projectRoot, targetBranch);
     }
 
+    // Resolve the owning project's filesystem path so the worktree lands in
+    // that project's directory (multi-project support). Falls back to the
+    // workspace root when the task has no projectId or the lookup fails.
+    const projectRoot = await resolveTaskProjectRoot(this.api, task, logger);
+
     return this.worktreeManager.createWorktree({
       agentName: worker.name,
       taskId: task.id,
       taskTitle: task.title,
       installDependencies: true,
       baseBranch: targetBranch,
+      ...(projectRoot ? { projectRoot } : {}),
     });
   }
 

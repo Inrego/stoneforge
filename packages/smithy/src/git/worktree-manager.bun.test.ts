@@ -412,6 +412,40 @@ describe('WorktreeManager Operations', () => {
       expect(result.branch).toBe('existing-branch');
       expect(result.branchCreated).toBe(false);
     });
+
+    test('places worktree under projectRoot override when provided', async () => {
+      // Simulate a project whose path differs from the workspace root but
+      // still lives inside the same git repo (e.g., a sub-directory).
+      const projectSubdir = path.resolve(path.join(tempDir, 'projects', 'svc-a'));
+      fs.mkdirSync(projectSubdir, { recursive: true });
+
+      const result = await manager.createWorktree({
+        agentName: 'alice',
+        taskId: 'task-proj' as ElementId,
+        taskTitle: 'Multi Project',
+        projectRoot: projectSubdir,
+      });
+
+      const realProjectSubdir = fs.realpathSync(projectSubdir);
+      const realResultPath = fs.realpathSync(result.path);
+      expect(realResultPath.startsWith(realProjectSubdir)).toBe(true);
+      expect(result.path).toContain(path.join('.stoneforge', '.worktrees'));
+      expect(fs.existsSync(result.path)).toBe(true);
+      expect(result.worktree.state).toBe('active');
+    });
+
+    test('falls back to workspaceRoot when projectRoot is omitted', async () => {
+      const result = await manager.createWorktree({
+        agentName: 'bob',
+        taskId: 'task-fallback' as ElementId,
+        taskTitle: 'Fallback',
+      });
+
+      // Real-path resolution handles /tmp -> /private/tmp on macOS
+      const realTemp = fs.realpathSync(tempDir);
+      const realResultPath = fs.realpathSync(result.path);
+      expect(realResultPath.startsWith(realTemp)).toBe(true);
+    });
   });
 
   describe('removeWorktree', () => {

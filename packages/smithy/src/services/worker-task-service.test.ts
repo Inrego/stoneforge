@@ -365,6 +365,58 @@ describe('WorkerTaskService', () => {
       });
     });
 
+    it('should thread projectRoot from task.projectId into createWorktree', async () => {
+      const taskWithProject = createMockTask({
+        projectId: 'el-proj1' as unknown as Task['projectId'],
+      });
+      const projectEntity = {
+        id: 'el-proj1',
+        type: 'project',
+        name: 'svc-a',
+        path: '/abs/path/projects/svc-a',
+        createdAt: createTimestamp(),
+        updatedAt: createTimestamp(),
+        createdBy: 'user-001' as EntityId,
+        tags: [],
+        metadata: {},
+      };
+      // api.get is called first for Task then for Project — return each in turn
+      (mockApi.get as MockInstance)
+        .mockResolvedValueOnce(taskWithProject)
+        .mockResolvedValueOnce(projectEntity);
+
+      await service.startWorkerOnTask(
+        taskWithProject.id,
+        mockAgent.id as unknown as EntityId
+      );
+
+      expect(mockWorktreeManager.createWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectRoot: '/abs/path/projects/svc-a',
+          agentName: 'Worker Alice',
+          taskId: taskWithProject.id,
+          taskTitle: taskWithProject.title,
+        })
+      );
+    });
+
+    it('should omit projectRoot when project lookup returns no record', async () => {
+      const taskWithMissingProject = createMockTask({
+        projectId: 'el-unknown' as unknown as Task['projectId'],
+      });
+      (mockApi.get as MockInstance)
+        .mockResolvedValueOnce(taskWithMissingProject)
+        .mockResolvedValueOnce(null); // Project not found
+
+      await service.startWorkerOnTask(
+        taskWithMissingProject.id,
+        mockAgent.id as unknown as EntityId
+      );
+
+      const call = (mockWorktreeManager.createWorktree as MockInstance).mock.calls[0][0];
+      expect(call).not.toHaveProperty('projectRoot');
+    });
+
     it('should dispatch task with correct options', async () => {
       await service.startWorkerOnTask(
         mockTask.id,

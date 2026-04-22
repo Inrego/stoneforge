@@ -37,6 +37,10 @@ import type {
 } from '../git/worktree-manager.js';
 import type { SpawnerService } from '../runtime/spawner.js';
 import type { SessionManager, SessionRecord } from '../runtime/session-manager.js';
+import { resolveTaskProjectRoot } from './project-root-resolver.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('worker-task-service');
 
 // ============================================================================
 // Types
@@ -311,9 +315,15 @@ export class WorkerTaskServiceImpl implements WorkerTaskService {
       throw new Error(`Task not found: ${taskId}`);
     }
 
+    // 2a. Resolve owning project's path (when set). Used to place the worktree
+    // under that project's filesystem root and to seed a fallback working
+    // directory when worktree creation is skipped. Missing/invalid projectId
+    // is non-fatal — we fall back to workspace-root behaviour.
+    const projectRoot = await resolveTaskProjectRoot(this.api, task, logger);
+
     // 3. Create worktree if enabled and not skipped
     let worktreeResult: CreateWorktreeResult | undefined;
-    let workingDirectory: string | undefined = options.workingDirectory;
+    let workingDirectory: string | undefined = options.workingDirectory ?? projectRoot;
     let branch: string | undefined = options.branch;
     let worktreePath: string | undefined = options.worktreePath;
 
@@ -325,6 +335,7 @@ export class WorkerTaskServiceImpl implements WorkerTaskService {
         customBranch: options.branch,
         customPath: options.worktreePath,
         baseBranch: options.baseBranch,
+        ...(projectRoot ? { projectRoot } : {}),
       });
       workingDirectory = worktreeResult.path;
       branch = worktreeResult.branch;
