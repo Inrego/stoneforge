@@ -367,6 +367,7 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
       // Track metrics state for this session
       const sessionStartTime = Date.now();
       let metricsRecorded = false;
+      let poolSessionEndedNotified = false;
       let sessionOutcome: MetricOutcome = 'completed';
       let sessionInputTokens = 0;
       let sessionOutputTokens = 0;
@@ -448,6 +449,24 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
         upsertSessionMetrics();
       };
 
+      // Helper to notify the pool service that this agent's session ended.
+      // Idempotent — guarded so the pool's activeCount isn't decremented twice
+      // when a session emits both a 'result' event and later terminates. Fires
+      // from both onResultEvent and onExit because cleanup() removes listeners
+      // synchronously in the result path, so onExit never fires for graceful
+      // completions. Without this call, statusCache and agentProjects grow
+      // unbounded between refreshAllPoolStatus runs.
+      const notifyPoolSessionEnded = () => {
+        if (poolSessionEndedNotified) return;
+        poolSessionEndedNotified = true;
+        poolService.onAgentSessionEnded(agentId).catch((err: unknown) => {
+          logger.warn(
+            `Failed to notify pool service of session end for agent ${agentId}:`,
+            err
+          );
+        });
+      };
+
       // Auto-terminate sessions when they emit a 'result' event
       // This handles ephemeral worker sessions completing their tasks
       const onResultEvent = (event: { type: string; subtype?: string; raw?: Record<string, unknown> }) => {
@@ -503,6 +522,7 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
 
           sessionOutcome = 'completed';
           recordSessionMetrics();
+          notifyPoolSessionEnded();
 
           logger.debug(`Session ${session.id} emitted result, auto-terminating`);
           sessionManager.stopSession(session.id, {
@@ -523,6 +543,9 @@ export async function initializeServices(options: ServicesOptions = {}): Promise
           sessionOutcome = (code && code !== 0) ? 'failed' : 'completed';
           recordSessionMetrics();
         }
+        // Release the agent's pool slot for crashes/kills that skip the result event.
+        // No-op when the result path already notified (idempotent helper).
+        notifyPoolSessionEnded();
         cleanup();
       };
 
